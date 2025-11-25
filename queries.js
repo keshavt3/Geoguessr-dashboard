@@ -1,3 +1,11 @@
+function calculateScore(distance, size = 14916862) { //size based on world map as baseline (more generous on scoring than other maps)
+    // Ensure distance is non-negative
+    distance = Math.max(distance, 0);
+    let rawScore = 5000 * Math.exp(-10 * distance / size);
+    return Math.round(rawScore);
+}
+
+
 // Fetch filtered duel tokens
 async function fetchFilteredTokens(userId, { modeFilter = "all", gameType = "team" } = {}) {
     if (!["team", "duels"].includes(gameType)) {
@@ -211,6 +219,9 @@ async function fetchTeamDuels(ids, myId, teammateId = null) {
                 let pStats = { distance: 0, score: 0, rounds: [] };
 
                 for (let guess of player.guesses) {
+                    if (guess.score === null) {
+                      guess.score = calculateScore(guess.distance);
+                    }
                     let round = game.rounds[guess.roundNumber - 1];
                     let roundTime = (new Date(guess.created) - new Date(round.startTime)) / 1000;
 
@@ -307,6 +318,6 @@ async function fetchTeamDuels(ids, myId, teammateId = null) {
 
 // Usage example:
 const ids = [];
-const myId = "---> YOUR ID HERE <---";
-const teammateId = "---> OPTIONAL TEAMMATE ID <---";
+const myId = "60314c8c098571000133cd25";
+const teammateId = "60371ab62f545500011cf343";
 await fetchTeamDuels(ids, myId, teammateId);
