@@ -1,11 +1,3 @@
-function calculateScore(distance, size = 14916862) { //size based on world map as baseline (more generous on scoring than other maps)
-    // Ensure distance is non-negative
-    distance = Math.max(distance, 0);
-    let rawScore = 5000 * Math.exp(-10 * distance / size);
-    return Math.round(rawScore);
-}
-
-
 // Fetch filtered duel tokens
 async function fetchFilteredTokens(userId, { modeFilter = "all", gameType = "team" } = {}) {
     if (!["team", "duels"].includes(gameType)) {
@@ -197,6 +189,9 @@ async function fetchTeamDuels(ids, myId, teammateId = null) {
                 continue;
             }
 
+            // Find ENEMY team (the other team)
+            let enemyTeam = game.teams.find(t => t.id !== myTeam.id);
+
             // Filter by teammate if provided
             if (teammateId && !myTeam.players.some(p => p.playerId === teammateId)) {
                 console.log(`Skipping: teammateId ${teammateId} not in team`);
@@ -213,6 +208,20 @@ async function fetchTeamDuels(ids, myId, teammateId = null) {
 
             let playerStats = {};
             let roundsMap = {};
+
+            // --- Compute enemy best scores per round ---
+            let enemyBest = {}; // roundNumber → highest score from enemy team
+
+            for (let player of enemyTeam.players) {
+                for (let guess of player.guesses) {
+                    let score = guess.score ?? calculateScore(guess.distance);
+                    let rn = guess.roundNumber;
+
+                    if (!enemyBest[rn] || score > enemyBest[rn]) {
+                        enemyBest[rn] = score;
+                    }
+                }
+            }
 
             // Process player guesses
             for (let player of myTeam.players) {
@@ -281,13 +290,24 @@ async function fetchTeamDuels(ids, myId, teammateId = null) {
                 }
             }
 
+            // Compute enemy team's total score
+            let enemyTotalScore = 0;
+            for (let player of enemyTeam.players) {
+                for (let guess of player.guesses) {
+                    enemyTotalScore += guess.score ?? calculateScore(guess.distance);
+                }
+            }
+
+            teamStats.scoreDiff = teamStats.totalScore - enemyTotalScore;
+
             // Finalize round stats
             let roundStats = Object.values(roundsMap).map(r => ({
                 roundNumber: r.roundNumber,
                 totalDistance: r.totalDistance,
                 totalScore: r.totalScore,
                 totalHealthChange: r.totalHealthChange,
-                countries: Array.from(r.countries)
+                countries: Array.from(r.countries),
+                enemyBestScore: enemyBest[r.roundNumber] ?? 0
             }));
 
             results.push({
@@ -314,6 +334,13 @@ async function fetchTeamDuels(ids, myId, teammateId = null) {
     URL.revokeObjectURL(url);
 
     console.log(`Saved ${results.length} games to team_duels_stats.json`);
+}
+
+function calculateScore(distance, size = 14916862) { //size based on world map as baseline (more generous on scoring than other maps)
+    // Ensure distance is non-negative
+    distance = Math.max(distance, 0);
+    let rawScore = 5000 * Math.exp(-10 * distance / size);
+    return Math.round(rawScore);
 }
 
 // Usage example:

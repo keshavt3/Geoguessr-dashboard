@@ -10,6 +10,7 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
     total_games = 0
     total_wins = 0
     total_rounds = 0
+    multi_merchant = 0   # NEW
 
     # Contribution counts
     player_contrib = defaultdict(int)
@@ -19,6 +20,10 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
     player_scores = defaultdict(int)
     player_distances = defaultdict(float)
     player_total_5ks = defaultdict(int)
+
+    # NEW: time accumulation
+    player_total_time = defaultdict(float)
+    player_time_rounds = defaultdict(int)
 
     # Country stats
     country_stats = defaultdict(lambda: {
@@ -37,6 +42,13 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
         if game["teamStats"]["totalHealthChange"] > -6000:
             total_wins += 1
 
+        # NEW: multi-merchant check
+        if (
+            game["teamStats"]["totalHealthChange"] == -6000
+            and game["teamStats"].get("scoreDiff", 0) > 0
+        ):
+            multi_merchant += 1
+
         # Player IDs (assuming 2 players)
         players = list(game["playerStats"].keys())
         p1, p2 = players[0], players[1]
@@ -44,11 +56,9 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
         rounds_p1 = game["playerStats"][p1]["rounds"]
         rounds_p2 = game["playerStats"][p2]["rounds"]
 
-        # Preprocess rounds into dicts for O(1) lookup
         rounds_dict_p1 = {r["roundNumber"]: r for r in rounds_p1}
         rounds_dict_p2 = {r["roundNumber"]: r for r in rounds_p2}
 
-        # Total rounds from roundStats
         num_rounds = game["roundStats"][-1]["roundNumber"]
         total_rounds += num_rounds
 
@@ -56,32 +66,38 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
             r1 = rounds_dict_p1.get(rn)
             r2 = rounds_dict_p2.get(rn)
 
-            # Handle missing rounds
             if r1 is None:
-                score1, dist1, country = 0, mapsize, None
+                score1, dist1, country, time1 = 0, mapsize, None, None
             else:
-                score1, dist1, country = r1["score"], r1["distance"], r1["country"]
+                score1, dist1, country, time1 = r1["score"], r1["distance"], r1["country"], r1.get("time")
 
             if r2 is None:
-                score2, dist2, _ = 0, mapsize, None
+                score2, dist2, _, time2 = 0, mapsize, None, None
             else:
-                score2, dist2, _ = r2["score"], r2["distance"], r2["country"]
+                score2, dist2, _, time2 = r2["score"], r2["distance"], r2["country"], r2.get("time")
 
-            # Country: pick whichever exists
             if country is None and r2 is not None:
                 country = r2["country"]
 
-            # Best team score and distance
             team_score = max(score1, score2)
             team_distance = min(dist1, dist2)
 
-            # Update player totals
+            # Player aggregates
             player_scores[p1] += score1
             player_scores[p2] += score2
             player_distances[p1] += dist1
             player_distances[p2] += dist2
 
-            # Contribution (who was closer)
+            # NEW: track time
+            if time1 is not None:
+                player_total_time[p1] += time1
+                player_time_rounds[p1] += 1
+
+            if time2 is not None:
+                player_total_time[p2] += time2
+                player_time_rounds[p2] += 1
+
+            # Contribution
             if dist1 < dist2:
                 player_contrib[p1] += 1
             elif dist2 < dist1:
@@ -90,7 +106,7 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
             player_rounds[p1] += 1
             player_rounds[p2] += 1
 
-            # ---- Country Stats ----
+            # Country stats
             if country is not None:
                 country = country.lower()
                 c = country_stats[country]
@@ -124,7 +140,17 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
             p: player_scores[p] / player_rounds[p] if player_rounds[p] else 0
             for p in player_scores
         },
-        "player_total_5ks": dict(player_total_5ks)
+        "player_total_5ks": dict(player_total_5ks),
+
+        # NEW: average guess times
+        "avg_guess_time": {
+            p: (player_total_time[p] / player_time_rounds[p])
+            if player_time_rounds[p] else 0
+            for p in player_total_time
+        },
+
+        # NEW: multi-merchant stat
+        "multi_merchant": multi_merchant,
     }
 
     # Country-level aggregates
@@ -152,18 +178,18 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
     sorted_by_team_score = sorted(
         results["countries"].items(),
         key=lambda x: x[1]["avg_team_score"],
-        reverse = True
+        reverse=True
     )
 
     results["countries"] = sorted_by_team_score
 
-    # Filter in place for top/bottom 10 with at least 20 rounds
     eligible = [item for item in sorted_by_team_score if item[1]["rounds"] >= 20]
 
-    results["top_10_countries"] = eligible[:10]         # first 10 best
-    results["bottom_10_countries"] = eligible[-10:]     # last 10 worst
+    results["top_10_countries"] = eligible[:10]
+    results["bottom_10_countries"] = eligible[-10:]
 
     return results
+
 
 def main():
     input_file = "team_duels_stats.json"
