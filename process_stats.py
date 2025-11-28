@@ -33,6 +33,9 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
         "team_distances": [],
         "player_distances": defaultdict(list),
         "player_5ks": defaultdict(int),
+
+        # NEW: list of score differences per round
+        "score_diffs": [],
     })
 
     for game in games:
@@ -79,6 +82,7 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
             if country is None and r2 is not None:
                 country = r2["country"]
 
+            # Team stats
             team_score = max(score1, score2)
             team_distance = min(dist1, dist2)
 
@@ -88,11 +92,10 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
             player_distances[p1] += dist1
             player_distances[p2] += dist2
 
-            # NEW: track time
+            # NEW: time tracking
             if time1 is not None:
                 player_total_time[p1] += time1
                 player_time_rounds[p1] += 1
-
             if time2 is not None:
                 player_total_time[p2] += time2
                 player_time_rounds[p2] += 1
@@ -110,11 +113,14 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
             if country is not None:
                 country = country.lower()
                 c = country_stats[country]
+
                 c["rounds"] += 1
                 c["team_scores"].append(team_score)
                 c["team_distances"].append(team_distance)
+
                 c["player_scores"][p1].append(score1)
                 c["player_scores"][p2].append(score2)
+
                 c["player_distances"][p1].append(dist1)
                 c["player_distances"][p2].append(dist2)
 
@@ -124,6 +130,11 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
                 if score2 == 5000:
                     c["player_5ks"][p2] += 1
                     player_total_5ks[p2] += 1
+
+                # NEW: compute score diff for this round
+                enemy_best = game["roundStats"][rn - 1]["enemyBestScore"]
+                my_best = team_score
+                c["score_diffs"].append(my_best - enemy_best)
 
     # ------- Compute final aggregates -------
     results = {}
@@ -142,14 +153,13 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
         },
         "player_total_5ks": dict(player_total_5ks),
 
-        # NEW: average guess times
+        # NEW: avg guess times
         "avg_guess_time": {
             p: (player_total_time[p] / player_time_rounds[p])
             if player_time_rounds[p] else 0
             for p in player_total_time
         },
 
-        # NEW: multi-merchant stat
         "multi_merchant": multi_merchant,
     }
 
@@ -172,23 +182,32 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
                 p: data["player_5ks"][p] / len(data["player_scores"][p])
                 if len(data["player_scores"][p]) else 0
                 for p in data["player_scores"]
-            }
+            },
+
+            # NEW: country-level avg score diff
+            "avg_score_diff": (
+                sum(data["score_diffs"]) / len(data["score_diffs"])
+                if data["score_diffs"] else 0
+            )
         }
 
-    sorted_by_team_score = sorted(
+    # ------- NEW SORT: sort by avg_score_diff -------
+    sorted_by_score_diff = sorted(
         results["countries"].items(),
-        key=lambda x: x[1]["avg_team_score"],
+        key=lambda x: x[1]["avg_score_diff"],
         reverse=True
     )
 
-    results["countries"] = sorted_by_team_score
+    results["countries"] = sorted_by_score_diff
 
-    eligible = [item for item in sorted_by_team_score if item[1]["rounds"] >= 20]
+    # Same filtering logic
+    eligible = [item for item in sorted_by_score_diff if item[1]["rounds"] >= 20]
 
     results["top_10_countries"] = eligible[:10]
     results["bottom_10_countries"] = eligible[-10:]
 
     return results
+
 
 
 def main():
