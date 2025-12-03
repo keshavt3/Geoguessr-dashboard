@@ -1,11 +1,24 @@
 from collections import defaultdict
+from .utils import load_data, save_json
+import reverse_geocoder as rg
+
+def get_country(lat, lon):
+    result = rg.search((lat, lon))[0]
+    return result['cc']  # country code
 
 def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, default is world map diagonal
     # Overall stats
     total_games = 0
     total_wins = 0
     total_rounds = 0
-    multi_merchant = 0   # NEW
+    merchant_stats = {
+    "multi_merchant": 0,
+    "reverse_merchant": 0
+    }
+    all_guess_coords = []
+    guess_map = {}  # maps (lat, lng) tuple → list of (country_stats_entry, round info)
+
+
 
     # Contribution counts
     player_contrib = defaultdict(int)
@@ -28,9 +41,10 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
         "team_distances": [],
         "player_distances": defaultdict(list),
         "player_5ks": defaultdict(int),
-
-        # NEW: list of score differences per round
         "score_diffs": [],
+        "correct_guesses": 0,   
+        "total_guesses": 0,
+        "wins": 0, 
     })
 
     for game in games:
@@ -40,12 +54,19 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
         if game["teamStats"]["totalHealthChange"] > -6000:
             total_wins += 1
 
-        # NEW: multi-merchant check
-        if (
-            game["teamStats"]["totalHealthChange"] == -6000
-            and game["teamStats"].get("scoreDiff", 0) > 0
-        ):
-            multi_merchant += 1
+        # Multi-merchant check
+        
+        score_diff = game["teamStats"].get("scoreDiff", 0)
+        lost_game = game["teamStats"]["totalHealthChange"] == -6000
+        won_game = game["teamStats"]["totalHealthChange"] > -6000
+
+        # Lost but outplayed opponent
+        if lost_game and score_diff > 0:
+            merchant_stats["multi_merchant"] += 1
+
+        # Won but were outplayed (inverse)
+        if won_game and score_diff < 0:
+            merchant_stats["reverse_merchant"] += 1
 
         # Player IDs (assuming 2 players)
         players = list(game["playerStats"].keys())
@@ -87,7 +108,7 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
             player_distances[p1] += dist1
             player_distances[p2] += dist2
 
-            # NEW: time tracking
+            # time tracking
             if time1 is not None:
                 player_total_time[p1] += time1
                 player_time_rounds[p1] += 1
@@ -109,6 +130,16 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
                 country = country.lower()
                 c = country_stats[country]
 
+                # Reverse geocode guess → guess country
+                if score1 > score2:
+                    key = (r1["lat"], r1["lng"])
+                    all_guess_coords.append(key)
+                    guess_map.setdefault(key, []).append((c, country))
+                else:
+                    key = (r2["lat"], r2["lng"])
+                    all_guess_coords.append(key)
+                    guess_map.setdefault(key, []).append((c, country))
+
                 c["rounds"] += 1
                 c["team_scores"].append(team_score)
                 c["team_distances"].append(team_distance)
@@ -126,10 +157,27 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
                     c["player_5ks"][p2] += 1
                     player_total_5ks[p2] += 1
 
-                # NEW: compute score diff for this round
+                # Compute score diff for this round
                 enemy_best = game["roundStats"][rn - 1]["enemyBestScore"]
-                my_best = team_score
-                c["score_diffs"].append(my_best - enemy_best)
+                score_diff = team_score - enemy_best
+                c["score_diffs"].append(score_diff)
+
+                # Increment country win if our best guess beats the enemy
+                if score_diff > 0:
+                    c["wins"] += 1
+    
+    # unique coords
+    unique_coords = list(set(all_guess_coords))
+    results = rg.search(unique_coords)  # batch search
+
+    # map results back
+    for i, coord in enumerate(unique_coords):
+        guess_country = results[i]['cc'].lower()
+        entries = guess_map[coord]
+        for c, actual_country in entries:
+            c["total_guesses"] += 1
+            if guess_country == actual_country.lower():
+                c["correct_guesses"] += 1
 
     # ------- Compute final aggregates -------
     results = {}
@@ -147,15 +195,13 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
             for p in player_scores
         },
         "player_total_5ks": dict(player_total_5ks),
-
-        # NEW: avg guess times
         "avg_guess_time": {
             p: (player_total_time[p] / player_time_rounds[p])
             if player_time_rounds[p] else 0
             for p in player_total_time
         },
 
-        "multi_merchant": multi_merchant,
+        "merchant_stats": merchant_stats,
     }
 
     # Country-level aggregates
@@ -183,10 +229,15 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
             "avg_score_diff": (
                 sum(data["score_diffs"]) / len(data["score_diffs"])
                 if data["score_diffs"] else 0
-            )
+            ),
+            "hit_rate": (
+                data["correct_guesses"] / data["total_guesses"]
+                if data["total_guesses"] else 0
+            ),
+            "win_rate": (data["wins"] / data["rounds"] if data["rounds"] else 0),
         }
 
-    # ------- NEW SORT: sort by avg_score_diff -------
+    # ------- sort by avg_score_diff -------
     sorted_by_score_diff = sorted(
         results["countries"].items(),
         key=lambda x: x[1]["avg_score_diff"],
@@ -202,3 +253,14 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
     results["bottom_10_countries"] = eligible[-10:]
 
     return results
+
+if __name__ == "__main__":
+    input_file = "data/games.json"
+    output_file = "data/processed_stats.json"
+
+    games = load_data(input_file)
+    stats = process_games(games)
+
+    save_json(output_file, stats)
+
+    print(f"Stats saved to {output_file}")

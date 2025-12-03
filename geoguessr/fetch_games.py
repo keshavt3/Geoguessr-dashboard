@@ -11,6 +11,7 @@ def fetch_filtered_tokens(session, game_type="team", mode_filter="all"):
     page = 1
 
     while True:
+        print(f"Fetching feed page {page}...")
         url = BASE_FEED_URL
         if token:
             url += f"?paginationToken={token}"
@@ -65,7 +66,9 @@ def fetch_filtered_tokens(session, game_type="team", mode_filter="all"):
 def fetch_team_duels(session, game_ids, my_id, teammate_id=None):
     all_results = []
 
-    for game_id in game_ids:
+    total_games = len(game_ids)
+    for i, game_id in enumerate(game_ids, 1):
+        print(f"Processing game {i}/{total_games} (ID: {game_id})...")
         try:
             resp = session.get(BASE_DUEL_URL + game_id)  # Use session.get
             if resp.status_code != 200:
@@ -112,7 +115,9 @@ def fetch_team_duels(session, game_ids, my_id, teammate_id=None):
                         "distance": guess["distance"],
                         "score": guess["score"],
                         "time": round_time,
-                        "country": round_info.get("panorama", {}).get("countryCode")
+                        "country": round_info.get("panorama", {}).get("countryCode"),
+                        "lat": guess["lat"],
+                        "lng": guess["lng"]
                     })
 
                     r = rounds_map.setdefault(guess["roundNumber"], {"totalDistance": 0, "totalScore": 0, "totalHealthChange": 0, "countries": set()})
