@@ -189,11 +189,13 @@ def fetch_duels(session, game_ids, my_id):
 
             # Identify me and the enemy
             my_player = None
+            my_team = None
             enemy_player = None
             for team in game["teams"]:
                 for player in team["players"]:
                     if player["playerId"] == my_id:
                         my_player = player
+                        my_team = team
                     else:
                         enemy_player = player
 
@@ -207,6 +209,7 @@ def fetch_duels(session, game_ids, my_id):
             # Enemy best score per round
             enemy_best = {}
             for guess in enemy_player["guesses"]:
+                
                 rn = guess["roundNumber"]
                 score = guess.get("score") or calculate_score(guess["distance"])
                 enemy_best[rn] = max(score, enemy_best.get(rn, 0))
@@ -237,7 +240,7 @@ def fetch_duels(session, game_ids, my_id):
                 })
 
             # Health changes and enemy scores
-            for rr in my_player.get("roundResults", []):
+            for rr in my_team.get("roundResults", []):
                 rn = rr["roundNumber"]
                 r = rounds_map.setdefault(rn, {"myScore": 0, "enemyScore": 0, "totalHealthChange": 0, "country": None})
                 if rr.get("healthBefore") is not None and rr.get("healthAfter") is not None:
@@ -286,7 +289,7 @@ if __name__ == "__main__":
 
 
     # Then call the functions with session
-    game_tokens = fetch_filtered_tokens(session, game_type=game_type, mode_filter=mode_filter)
+    game_tokens = ["3321914e-48ec-45c4-8689-c2dcc2bdeb9b","ba6de9ed-f51b-46bd-a2f6-c1b6ad935234", "ea7ff46d-7048-45b6-9817-cfc74d1a0252"]
     if game_type == "team":
         games = fetch_team_duels(session, game_tokens, player_id, teammate_id)
     elif game_type == "duels":
