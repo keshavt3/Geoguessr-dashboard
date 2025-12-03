@@ -1,17 +1,9 @@
-import requests
 import time
 import json
-from datetime import datetime
+from .utils import calculate_score, parse_time
 
 BASE_FEED_URL = "https://www.geoguessr.com/api/v4/feed/private"
 BASE_DUEL_URL = "https://game-server.geoguessr.com/api/duels/"
-
-def parse_time(ts):
-    return datetime.fromisoformat(ts.replace("Z", "+00:00"))
-
-def calculate_score(distance, size=14916862):
-    distance = max(distance, 0)
-    return round(5000 * (2.71828 ** (-10 * distance / size)))
 
 def fetch_filtered_tokens(session, game_type="team", mode_filter="all"):
     results = []
@@ -174,30 +166,3 @@ def fetch_team_duels(session, game_ids, my_id, teammate_id=None):
             print("Error fetching game", game_id, e)
 
     return all_results
-
-
-def main():
-    ncfa = input("Enter your ncfa cookie: ")
-    player_id = input("Enter your player ID: ")
-    teammate_id = input("Enter teammate ID (optional, press Enter to skip): ") or None
-    game_type = input("Game type ('team' or 'duels', default 'team'): ") or "team"
-    mode_filter = input("Mode filter ('all', 'competitive', 'casual', default 'all'): ") or "all"
-
-    # Create a session
-    session = requests.Session()
-    session.cookies.set("_ncfa", ncfa, domain="www.geoguessr.com")
-    session.cookies.set("_ncfa", ncfa, domain="game-server.geoguessr.com")
-
-
-    # Then call the functions with session
-    game_tokens = fetch_filtered_tokens(session, game_type=game_type, mode_filter=mode_filter)
-    games = fetch_team_duels(session, game_tokens, player_id, teammate_id)
-
-    with open("games.json", "w") as f:
-        json.dump(games, f, indent=2)
-
-    print(f"Saved {len(games)} games.")
-
-
-if __name__ == "__main__":
-    main()

@@ -1,9 +1,4 @@
-import json
 from collections import defaultdict
-
-def load_data(path):
-    with open(path, "r") as f:
-        return json.load(f)
 
 def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, default is world map diagonal
     # Overall stats
@@ -207,21 +202,3 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
     results["bottom_10_countries"] = eligible[-10:]
 
     return results
-
-
-
-def main():
-    input_file = "team_duels_stats.json"
-    output_file = "processed_stats.json"
-
-    games = load_data(input_file)
-    stats = process_games(games)
-
-    # Save results to a JSON file
-    with open(output_file, "w") as f:
-        json.dump(stats, f, indent=4)
-
-    print(f"Stats saved to {output_file}")
-
-if __name__ == "__main__":
-    main()
