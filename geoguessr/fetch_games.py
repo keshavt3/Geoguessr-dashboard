@@ -1,6 +1,7 @@
 import time
 import json
-from .utils import calculate_score, parse_time
+import requests
+from .utils import calculate_score, parse_time, save_json
 
 BASE_FEED_URL = "https://www.geoguessr.com/api/v4/feed/private"
 BASE_DUEL_URL = "https://game-server.geoguessr.com/api/duels/"
@@ -171,3 +172,129 @@ def fetch_team_duels(session, game_ids, my_id, teammate_id=None):
             print("Error fetching game", game_id, e)
 
     return all_results
+
+def fetch_duels(session, game_ids, my_id):
+    all_results = []
+
+    total_games = len(game_ids)
+    for i, game_id in enumerate(game_ids, 1):
+        print(f"Processing game {i}/{total_games} (ID: {game_id})...")
+        try:
+            resp = session.get(BASE_DUEL_URL + game_id)
+            if resp.status_code != 200:
+                print(f"Failed to fetch game {game_id}: {resp.status_code}")
+                continue
+
+            game = resp.json()
+
+            # Identify me and the enemy
+            my_player = None
+            enemy_player = None
+            for team in game["teams"]:
+                for player in team["players"]:
+                    if player["playerId"] == my_id:
+                        my_player = player
+                    else:
+                        enemy_player = player
+
+            if not my_player or not enemy_player:
+                print("bad token")
+                continue
+
+            # Prepare per-round stats
+            rounds_map = {}
+
+            # Enemy best score per round
+            enemy_best = {}
+            for guess in enemy_player["guesses"]:
+                rn = guess["roundNumber"]
+                score = guess.get("score") or calculate_score(guess["distance"])
+                enemy_best[rn] = max(score, enemy_best.get(rn, 0))
+
+            # My guesses
+            my_stats = {"totalDistance": 0, "totalScore": 0, "rounds": []}
+            for guess in my_player["guesses"]:
+                if guess.get("score") is None:
+                    guess["score"] = calculate_score(guess["distance"])
+                round_info = game["rounds"][guess["roundNumber"] - 1]
+                round_time = (parse_time(guess["created"]) - parse_time(round_info["startTime"])).total_seconds()
+
+                my_stats["totalDistance"] += guess["distance"]
+                my_stats["totalScore"] += guess["score"]
+
+                r = rounds_map.setdefault(guess["roundNumber"], {"myScore": 0, "enemyScore": 0, "totalHealthChange": 0, "country": None})
+                r["myScore"] = guess["score"]
+                r["country"] = round_info.get("panorama", {}).get("countryCode")
+
+                my_stats["rounds"].append({
+                    "roundNumber": guess["roundNumber"],
+                    "distance": guess["distance"],
+                    "score": guess["score"],
+                    "time": round_time,
+                    "country": r["country"],
+                    "lat": guess["lat"],
+                    "lng": guess["lng"]
+                })
+
+            # Health changes and enemy scores
+            for rr in my_player.get("roundResults", []):
+                rn = rr["roundNumber"]
+                r = rounds_map.setdefault(rn, {"myScore": 0, "enemyScore": 0, "totalHealthChange": 0, "country": None})
+                if rr.get("healthBefore") is not None and rr.get("healthAfter") is not None:
+                    r["totalHealthChange"] = rr["healthAfter"] - rr["healthBefore"]
+                # Enemy score per round
+                r["enemyScore"] = enemy_best.get(rn, 0)
+
+            round_stats = [
+                {
+                    "roundNumber": rn,
+                    "myScore": r["myScore"],
+                    "enemyScore": r["enemyScore"],
+                    "totalHealthChange": r["totalHealthChange"],
+                    "country": r["country"]
+                }
+                for rn, r in rounds_map.items()
+            ]
+
+            all_results.append({
+                "gameId": game_id,
+                "playerStats": my_stats,
+                "roundStats": round_stats
+            })
+
+            time.sleep(0.1)
+        except Exception as e:
+            print("Error fetching game", game_id, e)
+
+    return all_results
+
+
+
+
+
+if __name__ == "__main__":
+    ncfa = input("Enter your ncfa cookie: ")
+    player_id = input("Enter your player ID: ")
+    teammate_id = input("Enter teammate ID (optional, press Enter to skip): ") or None
+    game_type = input("Game type ('team' or 'duels', default 'team'): ") or "team"
+    mode_filter = input("Mode filter ('all', 'competitive', 'casual', default 'all'): ") or "all"
+
+    # Create a session
+    session = requests.Session()
+    session.cookies.set("_ncfa", ncfa, domain="www.geoguessr.com")
+    session.cookies.set("_ncfa", ncfa, domain="game-server.geoguessr.com")
+
+
+    # Then call the functions with session
+    game_tokens = fetch_filtered_tokens(session, game_type=game_type, mode_filter=mode_filter)
+    if game_type == "team":
+        games = fetch_team_duels(session, game_tokens, player_id, teammate_id)
+    elif game_type == "duels":
+        games = fetch_duels(session, game_tokens, player_id)
+    else:
+        print("Invalid game type. Choose 'team' or 'duels'.")
+
+
+    save_json("data/games.json", games)
+
+    print(f"Saved {len(games)} games.")

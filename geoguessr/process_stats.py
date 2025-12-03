@@ -64,7 +64,7 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
         if lost_game and score_diff > 0:
             merchant_stats["multi_merchant"] += 1
 
-        # Won but were outplayed (inverse)
+        # Won but got outplayed (inverse)
         if won_game and score_diff < 0:
             merchant_stats["reverse_merchant"] += 1
 
@@ -179,7 +179,7 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
             if guess_country == actual_country.lower():
                 c["correct_guesses"] += 1
 
-    # ------- Compute final aggregates -------
+    # Compute final aggregates 
     results = {}
 
     results["overall"] = {
@@ -225,7 +225,7 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
                 for p in data["player_scores"]
             },
 
-            # NEW: country-level avg score diff
+            # country-level avg score diff
             "avg_score_diff": (
                 sum(data["score_diffs"]) / len(data["score_diffs"])
                 if data["score_diffs"] else 0
@@ -237,7 +237,7 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
             "win_rate": (data["wins"] / data["rounds"] if data["rounds"] else 0),
         }
 
-    # ------- sort by avg_score_diff -------
+    # sort by avg_score_diff 
     sorted_by_score_diff = sorted(
         results["countries"].items(),
         key=lambda x: x[1]["avg_score_diff"],
