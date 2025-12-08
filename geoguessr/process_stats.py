@@ -254,6 +254,170 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
 
     return results
 
+def process_duels(games, mapsize=14916.862 * 1000):
+    """Process solo duels games into statistics."""
+    total_games = 0
+    total_wins = 0
+    total_rounds = 0
+    merchant_stats = {
+        "multi_merchant": 0,
+        "reverse_merchant": 0
+    }
+    all_guess_coords = []
+    guess_map = {}
+
+    # Player totals
+    total_score = 0
+    total_distance = 0.0
+    total_5ks = 0
+    total_time = 0.0
+    time_rounds = 0
+
+    # Country stats
+    country_stats = defaultdict(lambda: {
+        "rounds": 0,
+        "scores": [],
+        "distances": [],
+        "5ks": 0,
+        "score_diffs": [],
+        "correct_guesses": 0,
+        "total_guesses": 0,
+        "wins": 0,
+    })
+
+    for game in games:
+        total_games += 1
+
+        # Compute total health change for win/loss
+        game_health_change = sum(r["totalHealthChange"] for r in game["roundStats"])
+        won_game = game_health_change > -6000
+        lost_game = game_health_change == -6000
+
+        if won_game:
+            total_wins += 1
+
+        # Compute score diff for merchant stats
+        my_total = game["playerStats"]["totalScore"]
+        enemy_total = sum(r["enemyScore"] for r in game["roundStats"])
+        score_diff = my_total - enemy_total
+
+        if lost_game and score_diff > 0:
+            merchant_stats["multi_merchant"] += 1
+        if won_game and score_diff < 0:
+            merchant_stats["reverse_merchant"] += 1
+
+        num_rounds = len(game["roundStats"])
+        total_rounds += num_rounds
+
+        rounds_dict = {r["roundNumber"]: r for r in game["playerStats"]["rounds"]}
+        round_stats_dict = {r["roundNumber"]: r for r in game["roundStats"]}
+
+        for rn in range(1, num_rounds + 1):
+            r = rounds_dict.get(rn)
+            rs = round_stats_dict.get(rn)
+
+            if r is None:
+                score, dist, country, time_val = 0, mapsize, None, None
+            else:
+                score = r["score"]
+                dist = r["distance"]
+                country = r["country"]
+                time_val = r.get("time")
+
+            if country is None and rs:
+                country = rs.get("country")
+
+            total_score += score
+            total_distance += dist
+
+            if time_val is not None:
+                total_time += time_val
+                time_rounds += 1
+
+            if score == 5000:
+                total_5ks += 1
+
+            if country is not None:
+                country = country.lower()
+                c = country_stats[country]
+
+                # Track guess coordinates for hit rate
+                if r is not None:
+                    key = (r["lat"], r["lng"])
+                    all_guess_coords.append(key)
+                    guess_map.setdefault(key, []).append((c, country))
+
+                c["rounds"] += 1
+                c["scores"].append(score)
+                c["distances"].append(dist)
+
+                if score == 5000:
+                    c["5ks"] += 1
+
+                # Score diff for this round
+                enemy_score = rs["enemyScore"] if rs else 0
+                round_score_diff = score - enemy_score
+                c["score_diffs"].append(round_score_diff)
+
+                if round_score_diff > 0:
+                    c["wins"] += 1
+
+    # Batch reverse geocode for hit rate
+    if all_guess_coords:
+        unique_coords = list(set(all_guess_coords))
+        geo_results = rg.search(unique_coords)
+
+        for i, coord in enumerate(unique_coords):
+            guess_country = geo_results[i]['cc'].lower()
+            entries = guess_map[coord]
+            for c, actual_country in entries:
+                c["total_guesses"] += 1
+                if guess_country == actual_country.lower():
+                    c["correct_guesses"] += 1
+
+    # Compute final aggregates
+    results = {}
+
+    results["overall"] = {
+        "total_games": total_games,
+        "win_percentage": total_wins / total_games if total_games else 0,
+        "avg_rounds_per_game": total_rounds / total_games if total_games else 0,
+        "avg_score": total_score / total_rounds if total_rounds else 0,
+        "total_5ks": total_5ks,
+        "avg_guess_time": total_time / time_rounds if time_rounds else 0,
+        "merchant_stats": merchant_stats,
+    }
+
+    # Country-level aggregates
+    results["countries"] = {}
+    for country, data in country_stats.items():
+        results["countries"][country] = {
+            "rounds": data["rounds"],
+            "avg_score": sum(data["scores"]) / len(data["scores"]) if data["scores"] else 0,
+            "avg_distance_km": sum(data["distances"]) / len(data["distances"]) / 1000 if data["distances"] else 0,
+            "5k_rate": data["5ks"] / data["rounds"] if data["rounds"] else 0,
+            "avg_score_diff": sum(data["score_diffs"]) / len(data["score_diffs"]) if data["score_diffs"] else 0,
+            "hit_rate": data["correct_guesses"] / data["total_guesses"] if data["total_guesses"] else 0,
+            "win_rate": data["wins"] / data["rounds"] if data["rounds"] else 0,
+        }
+
+    # Sort by avg_score_diff
+    sorted_by_score_diff = sorted(
+        results["countries"].items(),
+        key=lambda x: x[1]["avg_score_diff"],
+        reverse=True
+    )
+
+    results["countries"] = sorted_by_score_diff
+
+    # Top/bottom 10 with minimum 20 rounds
+    eligible = [item for item in sorted_by_score_diff if item[1]["rounds"] >= 20]
+    results["top_10_countries"] = eligible[:10]
+    results["bottom_10_countries"] = eligible[-10:]
+
+    return results
+
+
 if __name__ == "__main__":
     input_file = "data/games.json"
     output_file = "data/processed_stats.json"

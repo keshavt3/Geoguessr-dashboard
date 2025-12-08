@@ -1,5 +1,5 @@
-from geoguessr.fetch_games import fetch_filtered_tokens, fetch_team_duels
-from geoguessr.process_stats import process_games
+from geoguessr.fetch_games import fetch_filtered_tokens, fetch_team_duels, fetch_duels
+from geoguessr.process_stats import process_games, process_duels
 from geoguessr.utils import load_data, save_json
 import requests
 
@@ -18,7 +18,11 @@ def main():
 
     # Then call the functions with session
     game_tokens = fetch_filtered_tokens(session, game_type=game_type, mode_filter=mode_filter)
-    games = fetch_team_duels(session, game_tokens, player_id, teammate_id)
+
+    if game_type == "duels":
+        games = fetch_duels(session, game_tokens, player_id)
+    else:
+        games = fetch_team_duels(session, game_tokens, player_id, teammate_id)
 
     save_json("data/games.json", games)
 
@@ -28,7 +32,13 @@ def main():
     output_file = "data/processed_stats.json"
 
     games = load_data(input_file)
-    stats = process_games(games)
+
+    if game_type == "duels":
+        stats = process_duels(games)
+        output_file = "data/duel_stats.json"
+    else:
+        stats = process_games(games)
+        output_file = "data/team_duel_stats.json"
 
     save_json(output_file, stats)
 
