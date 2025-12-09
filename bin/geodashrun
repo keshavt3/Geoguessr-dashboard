@@ -1,0 +1,17 @@
+#!/bin/bash
+#
+# geodashrun
+#
+# Start the GeoGuessr Dashboard development server
+
+set -Eeuo pipefail
+
+DB_PATH="var/geodash.sqlite3"
+
+if [ ! -f "$DB_PATH" ]; then
+    echo "Error: Database not found. Run 'bin/geodashdb create' first."
+    exit 1
+fi
+
+echo "Starting GeoGuessr Dashboard server..."
+flask --app geodash --debug run --host 0.0.0.0 --port 8000

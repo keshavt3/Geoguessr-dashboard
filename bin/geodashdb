@@ -1,0 +1,73 @@
+#!/bin/bash
+#
+# geodashdb
+#
+# Database management script for GeoGuessr Dashboard
+# Usage: geodashdb create|destroy|reset|dump
+
+set -Eeuo pipefail
+
+usage() {
+    echo "Usage: $0 (create|destroy|reset|dump)"
+}
+
+if [ $# -ne 1 ]; then
+    usage
+    exit 1
+fi
+
+DB_PATH="var/geodash.sqlite3"
+SCHEMA_FILE="sql/schema.sql"
+DATA_FILE="sql/data.sql"
+
+create() {
+    if [ -f "$DB_PATH" ]; then
+        echo "Error: database already exists"
+        exit 1
+    fi
+    mkdir -p var
+    sqlite3 "$DB_PATH" < "$SCHEMA_FILE"
+    sqlite3 "$DB_PATH" < "$DATA_FILE"
+    echo "Database created: $DB_PATH"
+}
+
+destroy() {
+    rm -f "$DB_PATH"
+    echo "Database destroyed"
+}
+
+reset() {
+    destroy
+    create
+}
+
+dump() {
+    if [ ! -f "$DB_PATH" ]; then
+        echo "Error: database does not exist"
+        exit 1
+    fi
+    sqlite3 -header -column "$DB_PATH" "SELECT * FROM overall_stats;"
+    echo ""
+    sqlite3 -header -column "$DB_PATH" "SELECT * FROM player_contributions;"
+    echo ""
+    sqlite3 -header -column "$DB_PATH" "SELECT * FROM country_stats;"
+}
+
+case $1 in
+    create)
+        create
+        ;;
+    destroy)
+        destroy
+        ;;
+    reset)
+        reset
+        ;;
+    dump)
+        dump
+        ;;
+    *)
+        usage
+        exit 1
+        ;;
+esac

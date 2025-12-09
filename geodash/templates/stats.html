@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+
+{% block title %}Stats - GeoGuessr Dashboard{% endblock %}
+
+{% block content %}
+<h1>GeoGuessr Statistics</h1>
+
+<div id="loading">Loading stats...</div>
+<div id="no-stats" style="display: none;">
+    <p>No stats found. <a href="{{ url_for('show_fetch') }}">Fetch some games first</a>.</p>
+</div>
+
+<div id="stats-container" style="display: none;">
+    <section id="overall-stats">
+        <h2>Overall Stats</h2>
+        <div class="stats-grid" id="overall-grid"></div>
+    </section>
+
+    <section id="player-contributions" style="display: none;">
+        <h2>Player Contributions</h2>
+        <div id="contributions-grid"></div>
+    </section>
+
+    <section id="country-stats">
+        <h2>Country Performance</h2>
+
+        <div class="country-section">
+            <h3>Top 10 Countries (by Score Diff)</h3>
+            <table id="top-countries">
+                <thead>
+                    <tr>
+                        <th>Country</th>
+                        <th>Rounds</th>
+                        <th>Avg Score</th>
+                        <th>Score Diff</th>
+                        <th>Win Rate</th>
+                        <th>Hit Rate</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <div class="country-section">
+            <h3>Bottom 10 Countries (by Score Diff)</h3>
+            <table id="bottom-countries">
+                <thead>
+                    <tr>
+                        <th>Country</th>
+                        <th>Rounds</th>
+                        <th>Avg Score</th>
+                        <th>Score Diff</th>
+                        <th>Win Rate</th>
+                        <th>Hit Rate</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadStats() {
+    const loading = document.getElementById('loading');
+    const noStats = document.getElementById('no-stats');
+    const container = document.getElementById('stats-container');
+
+    try {
+        // Fetch overall stats
+        const statsRes = await fetch('/api/v1/stats/');
+        const statsData = await statsRes.json();
+
+        if (!statsData.success) {
+            loading.style.display = 'none';
+            noStats.style.display = 'block';
+            return;
+        }
+
+        // Fetch country stats
+        const countriesRes = await fetch('/api/v1/countries/');
+        const countriesData = await countriesRes.json();
+
+        // Render overall stats
+        const overall = statsData.data.overall;
+        const overallGrid = document.getElementById('overall-grid');
+        overallGrid.innerHTML = `
+            <div class="stat-card">
+                <h3>Total Games</h3>
+                <p>${overall.total_games}</p>
+            </div>
+            <div class="stat-card">
+                <h3>Win Rate</h3>
+                <p>${(overall.win_percentage * 100).toFixed(1)}%</p>
+            </div>
+            <div class="stat-card">
+                <h3>Avg Rounds/Game</h3>
+                <p>${overall.avg_rounds_per_game.toFixed(2)}</p>
+            </div>
+            ${overall.avg_score ? `
+            <div class="stat-card">
+                <h3>Avg Score</h3>
+                <p>${overall.avg_score.toFixed(0)}</p>
+            </div>` : ''}
+            ${overall.total_5ks ? `
+            <div class="stat-card">
+                <h3>Total 5Ks</h3>
+                <p>${overall.total_5ks}</p>
+            </div>` : ''}
+            ${overall.avg_guess_time ? `
+            <div class="stat-card">
+                <h3>Avg Guess Time</h3>
+                <p>${overall.avg_guess_time.toFixed(1)}s</p>
+            </div>` : ''}
+            <div class="stat-card">
+                <h3>Multi-Merchanted</h3>
+                <p>${overall.multi_merchant}</p>
+            </div>
+            <div class="stat-card">
+                <h3>Reverse Merchanted</h3>
+                <p>${overall.reverse_merchant}</p>
+            </div>
+        `;
+
+        // Render player contributions if available
+        const contributions = statsData.data.player_contributions;
+        if (contributions && contributions.length > 0) {
+            const contribSection = document.getElementById('player-contributions');
+            const contribGrid = document.getElementById('contributions-grid');
+            contribSection.style.display = 'block';
+
+            contribGrid.innerHTML = contributions.map(p => `
+                <div class="player-card">
+                    <h4>${p.player_id}</h4>
+                    <p>Contribution: ${(p.contribution_percent * 100).toFixed(1)}%</p>
+                    ${p.avg_individual_score ? `<p>Avg Score: ${p.avg_individual_score.toFixed(0)}</p>` : ''}
+                    ${p.total_5ks ? `<p>5Ks: ${p.total_5ks}</p>` : ''}
+                </div>
+            `).join('');
+        }
+
+        // Render country tables
+        if (countriesData.success) {
+            renderCountryTable('top-countries', countriesData.data.top_10);
+            renderCountryTable('bottom-countries', countriesData.data.bottom_10);
+        }
+
+        loading.style.display = 'none';
+        container.style.display = 'block';
+
+    } catch (err) {
+        loading.innerHTML = `<p class="error">Error loading stats: ${err.message}</p>`;
+    }
+}
+
+function renderCountryTable(tableId, countries) {
+    const tbody = document.querySelector(`#${tableId} tbody`);
+    tbody.innerHTML = countries.map(c => `
+        <tr>
+            <td>${c.country_code.toUpperCase()}</td>
+            <td>${c.rounds}</td>
+            <td>${c.avg_score.toFixed(0)}</td>
+            <td>${c.avg_score_diff >= 0 ? '+' : ''}${c.avg_score_diff.toFixed(0)}</td>
+            <td>${(c.win_rate * 100).toFixed(1)}%</td>
+            <td>${(c.hit_rate * 100).toFixed(1)}%</td>
+        </tr>
+    `).join('');
+}
+
+loadStats();
+</script>
+{% endblock %}

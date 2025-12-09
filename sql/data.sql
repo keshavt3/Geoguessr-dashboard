@@ -1,0 +1,2 @@
+-- Seed data (optional)
+-- This file can be used to insert test data for development

@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block title %}Fetch Stats - GeoGuessr Dashboard{% endblock %}
+
+{% block content %}
+<h1>Fetch New Stats</h1>
+
+<form id="fetch-form">
+    <div class="form-group">
+        <label for="playerId">Player ID:</label>
+        <input type="text" id="playerId" name="playerId" required>
+    </div>
+
+    <div class="form-group">
+        <label for="ncfa">NCFA Cookie:</label>
+        <input type="text" id="ncfa" name="ncfa" required>
+    </div>
+
+    <div class="form-group">
+        <label for="teammateId">Teammate ID (for Team Duels only):</label>
+        <input type="text" id="teammateId" name="teammateId">
+    </div>
+
+    <div class="form-group">
+        <label for="gameType">Game Type:</label>
+        <select id="gameType" name="gameType">
+            <option value="duels">Solo Duels</option>
+            <option value="team">Team Duels</option>
+        </select>
+    </div>
+
+    <button type="submit" id="fetch-btn">Fetch Latest Games</button>
+</form>
+
+<div id="status"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('fetch-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+
+    const statusDiv = document.getElementById('status');
+    const btn = document.getElementById('fetch-btn');
+
+    const playerId = document.getElementById('playerId').value;
+    const ncfa = document.getElementById('ncfa').value;
+    const teammateId = document.getElementById('teammateId').value;
+    const gameType = document.getElementById('gameType').value;
+
+    btn.disabled = true;
+    statusDiv.innerHTML = '<p class="loading">Fetching games... This may take a while.</p>';
+
+    const endpoint = gameType === 'team' ? '/api/v1/fetch-team-duels/' : '/api/v1/fetch-latest/';
+    const body = { playerId, ncfa };
+    if (gameType === 'team' && teammateId) {
+        body.teammateId = teammateId;
+    }
+
+    try {
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            statusDiv.innerHTML = `<p class="success">Success! Fetched ${data.games_fetched} games. <a href="/stats/">View Stats</a></p>`;
+        } else {
+            statusDiv.innerHTML = `<p class="error">Error: ${data.error}</p>`;
+        }
+    } catch (err) {
+        statusDiv.innerHTML = `<p class="error">Network error: ${err.message}</p>`;
+    }
+
+    btn.disabled = false;
+});
+</script>
+{% endblock %}

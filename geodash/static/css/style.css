@@ -1,0 +1,194 @@
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+    background: #1a1a2e;
+    color: #eee;
+    line-height: 1.6;
+}
+
+nav {
+    background: #16213e;
+    padding: 1rem 2rem;
+    display: flex;
+    gap: 2rem;
+}
+
+nav a {
+    color: #00d9ff;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+nav a:hover {
+    text-decoration: underline;
+}
+
+main {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+h1 {
+    margin-bottom: 1.5rem;
+    color: #00d9ff;
+}
+
+h2 {
+    margin: 2rem 0 1rem;
+    color: #00d9ff;
+    border-bottom: 1px solid #333;
+    padding-bottom: 0.5rem;
+}
+
+h3 {
+    margin: 1rem 0 0.5rem;
+    color: #ccc;
+}
+
+/* Forms */
+.form-group {
+    margin-bottom: 1rem;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.25rem;
+    color: #aaa;
+}
+
+.form-group input,
+.form-group select {
+    width: 100%;
+    max-width: 400px;
+    padding: 0.5rem;
+    border: 1px solid #333;
+    border-radius: 4px;
+    background: #0f0f23;
+    color: #eee;
+}
+
+button {
+    background: #00d9ff;
+    color: #1a1a2e;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+    margin-top: 1rem;
+}
+
+button:hover {
+    background: #00b8d9;
+}
+
+button:disabled {
+    background: #555;
+    cursor: not-allowed;
+}
+
+/* Status messages */
+#status {
+    margin-top: 1rem;
+}
+
+.loading {
+    color: #ffcc00;
+}
+
+.success {
+    color: #00ff88;
+}
+
+.error {
+    color: #ff4444;
+}
+
+/* Stats grid */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1rem;
+}
+
+.stat-card {
+    background: #16213e;
+    padding: 1rem;
+    border-radius: 8px;
+    text-align: center;
+}
+
+.stat-card h3 {
+    font-size: 0.85rem;
+    color: #888;
+    margin-bottom: 0.5rem;
+}
+
+.stat-card p {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #00d9ff;
+}
+
+/* Player cards */
+#contributions-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+}
+
+.player-card {
+    background: #16213e;
+    padding: 1rem;
+    border-radius: 8px;
+}
+
+.player-card h4 {
+    color: #00d9ff;
+    margin-bottom: 0.5rem;
+    font-size: 0.9rem;
+    word-break: break-all;
+}
+
+.player-card p {
+    font-size: 0.9rem;
+    color: #ccc;
+}
+
+/* Tables */
+.country-section {
+    margin-bottom: 2rem;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #16213e;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+th, td {
+    padding: 0.75rem 1rem;
+    text-align: left;
+}
+
+th {
+    background: #0f0f23;
+    color: #00d9ff;
+    font-weight: 600;
+}
+
+tr:nth-child(even) {
+    background: #1a1a3e;
+}
+
+td {
+    border-top: 1px solid #333;
+}

@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: geodash
+Version: 0.1.0
+Summary: GeoGuessr Statistics Dashboard
+Requires-Python: >=3.10
+Requires-Dist: flask
+Requires-Dist: requests
+Requires-Dist: reverse_geocoder
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: pylint; extra == "dev"
+Requires-Dist: pycodestyle; extra == "dev"
+Requires-Dist: pydocstyle; extra == "dev"
