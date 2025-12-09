@@ -60,7 +60,7 @@ def fetch_filtered_tokens(session, game_type="team", mode_filter="all"):
         if not token:
             break
         page += 1
-        time.sleep(0.3)  # avoid hammering server
+        time.sleep(0.075)  # avoid hammering server
 
     return list(set(results))  # unique
 
@@ -167,7 +167,7 @@ def fetch_team_duels(session, game_ids, my_id, teammate_id=None):
                 "playerStats": player_stats,
                 "roundStats": round_stats
             })
-            time.sleep(0.1)
+            time.sleep(0.075)
         except Exception as e:
             print("Error fetching game", game_id, e)
 
@@ -265,7 +265,7 @@ def fetch_duels(session, game_ids, my_id):
                 "roundStats": round_stats
             })
 
-            time.sleep(0.1)
+            time.sleep(0.075)
         except Exception as e:
             print("Error fetching game", game_id, e)
 
