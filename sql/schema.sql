@@ -1,5 +1,13 @@
 PRAGMA foreign_keys = ON;
 
+-- Track which games have been fetched to avoid re-fetching
+CREATE TABLE fetched_games(
+    game_id VARCHAR(64) PRIMARY KEY,
+    player_id VARCHAR(64) NOT NULL,
+    game_type VARCHAR(20) NOT NULL,  -- 'duels' or 'team_duels'
+    fetched_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Overall stats for a fetch session
 CREATE TABLE overall_stats(
     id INTEGER PRIMARY KEY AUTOINCREMENT,

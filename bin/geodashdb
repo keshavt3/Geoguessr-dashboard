@@ -33,7 +33,9 @@ create() {
 
 destroy() {
     rm -f "$DB_PATH"
-    echo "Database destroyed"
+    rm -f data/games.json
+    rm -f data/team_games.json
+    echo "Database and game data destroyed"
 }
 
 reset() {

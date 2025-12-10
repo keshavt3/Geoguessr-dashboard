@@ -7,7 +7,12 @@ BASE_FEED_URL = "https://www.geoguessr.com/api/v4/feed/private"
 BASE_DUEL_URL = "https://game-server.geoguessr.com/api/duels/"
 
 def fetch_filtered_tokens(session, game_type="team", mode_filter="all"):
-    results = []
+    """Fetch game IDs from feed.
+
+    Returns:
+        dict: {game_id: is_competitive} mapping
+    """
+    results = {}  # game_id -> is_competitive
     token = None
     page = 1
 
@@ -17,7 +22,7 @@ def fetch_filtered_tokens(session, game_type="team", mode_filter="all"):
         if token:
             url += f"?paginationToken={token}"
 
-        resp = session.get(url)  # Use session.get instead of requests.get
+        resp = session.get(url)
 
         if resp.status_code != 200:
             print("Auth failed or other error:", resp.status_code)
@@ -54,17 +59,30 @@ def fetch_filtered_tokens(session, game_type="team", mode_filter="all"):
                     if mode_filter == "casual" and is_competitive:
                         continue
 
-                    results.append(game_id)
+                    results[game_id] = is_competitive
 
         token = data.get("paginationToken")
         if not token:
             break
         page += 1
-        time.sleep(0.075)  # avoid hammering server
+        time.sleep(0.075)
 
-    return list(set(results))  # unique
+    return results
 
-def fetch_team_duels(session, game_ids, my_id, teammate_id=None):
+def fetch_team_duels(session, game_ids_with_mode, my_id, teammate_id=None):
+    """Fetch team duels game details.
+
+    Args:
+        game_ids_with_mode: dict {game_id: is_competitive} or list of game_ids
+    """
+    # Handle both dict and list for backwards compatibility
+    if isinstance(game_ids_with_mode, dict):
+        game_ids = list(game_ids_with_mode.keys())
+        mode_map = game_ids_with_mode
+    else:
+        game_ids = game_ids_with_mode
+        mode_map = {}
+
     all_results = []
 
     total_games = len(game_ids)
@@ -162,6 +180,7 @@ def fetch_team_duels(session, game_ids, my_id, teammate_id=None):
 
             all_results.append({
                 "gameId": game_id,
+                "isCompetitive": mode_map.get(game_id, False),
                 "teamId": my_team["id"],
                 "teamStats": team_stats,
                 "playerStats": player_stats,
@@ -173,7 +192,19 @@ def fetch_team_duels(session, game_ids, my_id, teammate_id=None):
 
     return all_results
 
-def fetch_duels(session, game_ids, my_id):
+def fetch_duels(session, game_ids_with_mode, my_id):
+    """Fetch solo duels game details.
+
+    Args:
+        game_ids_with_mode: dict {game_id: is_competitive} or list of game_ids
+    """
+    # Handle both dict and list for backwards compatibility
+    if isinstance(game_ids_with_mode, dict):
+        game_ids = list(game_ids_with_mode.keys())
+        mode_map = game_ids_with_mode
+    else:
+        game_ids = game_ids_with_mode
+        mode_map = {}
     all_results = []
 
     total_games = len(game_ids)
@@ -261,6 +292,7 @@ def fetch_duels(session, game_ids, my_id):
 
             all_results.append({
                 "gameId": game_id,
+                "isCompetitive": mode_map.get(game_id, False),
                 "playerStats": my_stats,
                 "roundStats": round_stats
             })

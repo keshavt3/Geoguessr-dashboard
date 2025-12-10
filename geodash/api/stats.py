@@ -5,7 +5,7 @@ import geodash
 from geodash.model import get_db
 from geoguessr.fetch_games import fetch_filtered_tokens, fetch_duels, fetch_team_duels
 from geoguessr.process_stats import process_duels, process_games
-from geoguessr.utils import save_json
+from geoguessr.utils import save_json, load_data as load_json
 
 
 @geodash.app.route('/api/v1/stats/', methods=['GET'])
@@ -90,6 +90,7 @@ def fetch_latest():
 
     player_id = data['playerId']
     ncfa = data['ncfa']
+    mode_filter = data.get('modeFilter', 'all')  # 'all', 'competitive', 'casual'
 
     try:
         # Create authenticated session
@@ -97,27 +98,66 @@ def fetch_latest():
         session.cookies.set("_ncfa", ncfa, domain="www.geoguessr.com")
         session.cookies.set("_ncfa", ncfa, domain="game-server.geoguessr.com")
 
-        # Fetch game IDs
-        game_ids = fetch_filtered_tokens(session, game_type="duels")
+        # Always fetch ALL game IDs (mode info is stored with each game)
+        all_game_ids_with_mode = fetch_filtered_tokens(session, game_type="duels", mode_filter="all")
 
-        if not game_ids:
-            return flask.jsonify({"success": False, "error": "No games found"}), 404
+        if not all_game_ids_with_mode:
+            return flask.jsonify({"success": False, "error": "No games found in feed"}), 404
 
-        # Fetch full game data
-        games = fetch_duels(session, game_ids, player_id)
+        # Filter out already-fetched games
+        db = get_db()
+        cur = db.execute(
+            "SELECT game_id FROM fetched_games WHERE player_id = ? AND game_type = ?",
+            (player_id, 'duels')
+        )
+        existing_ids = {row['game_id'] for row in cur.fetchall()}
+        new_game_ids_with_mode = {
+            gid: mode for gid, mode in all_game_ids_with_mode.items()
+            if gid not in existing_ids
+        }
 
-        # Save raw games
-        save_json("data/games.json", games)
+        # Fetch only new games (if any)
+        if new_game_ids_with_mode:
+            new_games = fetch_duels(session, new_game_ids_with_mode, player_id)
 
-        # Process stats
-        stats = process_duels(games)
+            # Record fetched game IDs
+            for game in new_games:
+                db.execute(
+                    "INSERT OR IGNORE INTO fetched_games (game_id, player_id, game_type) VALUES (?, ?, ?)",
+                    (game['gameId'], player_id, 'duels')
+                )
+        else:
+            new_games = []
+
+        # Load existing games and merge
+        try:
+            existing_games = load_json("data/games.json")
+        except Exception:
+            existing_games = []
+
+        all_games = existing_games + new_games
+        save_json("data/games.json", all_games)
+
+        # Apply mode filter for processing
+        if mode_filter == 'competitive':
+            filtered_games = [g for g in all_games if g.get('isCompetitive', False)]
+        elif mode_filter == 'casual':
+            filtered_games = [g for g in all_games if not g.get('isCompetitive', False)]
+        else:
+            filtered_games = all_games
+
+        # Process filtered games
+        stats = process_duels(filtered_games)
 
         # Save to database
         _save_stats_to_db(player_id, 'duels', stats)
 
         return flask.jsonify({
             "success": True,
-            "games_fetched": len(games)
+            "games_fetched": len(new_games),
+            "total_games": len(all_games),
+            "filtered_games": len(filtered_games),
+            "mode_filter": mode_filter
         })
 
     except Exception as e:
@@ -137,6 +177,7 @@ def fetch_team_duels_api():
     player_id = data['playerId']
     ncfa = data['ncfa']
     teammate_id = data.get('teammateId')
+    mode_filter = data.get('modeFilter', 'all')  # 'all', 'competitive', 'casual'
 
     try:
         # Create authenticated session
@@ -144,27 +185,76 @@ def fetch_team_duels_api():
         session.cookies.set("_ncfa", ncfa, domain="www.geoguessr.com")
         session.cookies.set("_ncfa", ncfa, domain="game-server.geoguessr.com")
 
-        # Fetch game IDs
-        game_ids = fetch_filtered_tokens(session, game_type="team")
+        # Always fetch ALL game IDs (mode info is stored with each game)
+        all_game_ids_with_mode = fetch_filtered_tokens(session, game_type="team", mode_filter="all")
 
-        if not game_ids:
-            return flask.jsonify({"success": False, "error": "No games found"}), 404
+        if not all_game_ids_with_mode:
+            return flask.jsonify({"success": False, "error": "No games found in feed"}), 404
 
-        # Fetch full game data
-        games = fetch_team_duels(session, game_ids, player_id, teammate_id)
+        # Filter out already-fetched games
+        db = get_db()
+        cur = db.execute(
+            "SELECT game_id FROM fetched_games WHERE player_id = ? AND game_type = ?",
+            (player_id, 'team_duels')
+        )
+        existing_ids = {row['game_id'] for row in cur.fetchall()}
+        new_game_ids_with_mode = {
+            gid: mode for gid, mode in all_game_ids_with_mode.items()
+            if gid not in existing_ids
+        }
 
-        # Save raw games
-        save_json("data/team_games.json", games)
+        # Fetch only new games
+        if new_game_ids_with_mode:
+            new_games = fetch_team_duels(session, new_game_ids_with_mode, player_id, teammate_id)
 
-        # Process stats
-        stats = process_games(games)
+            # Record ALL fetched game IDs
+            for gid in new_game_ids_with_mode.keys():
+                db.execute(
+                    "INSERT OR IGNORE INTO fetched_games (game_id, player_id, game_type) VALUES (?, ?, ?)",
+                    (gid, player_id, 'team_duels')
+                )
+        else:
+            new_games = []
+
+        # Load existing games
+        try:
+            existing_games = load_json("data/team_games.json")
+        except Exception:
+            existing_games = []
+
+        # Merge all games
+        all_games = existing_games + new_games
+        save_json("data/team_games.json", all_games)
+
+        # Apply filters for processing
+        filtered_games = all_games
+
+        # Mode filter
+        if mode_filter == 'competitive':
+            filtered_games = [g for g in filtered_games if g.get('isCompetitive', False)]
+        elif mode_filter == 'casual':
+            filtered_games = [g for g in filtered_games if not g.get('isCompetitive', False)]
+
+        # Teammate filter
+        if teammate_id:
+            filtered_games = [
+                g for g in filtered_games
+                if any(pid == teammate_id for pid in g.get('playerStats', {}).keys())
+            ]
+
+        # Process filtered games
+        stats = process_games(filtered_games)
 
         # Save to database
         _save_stats_to_db(player_id, 'team_duels', stats)
 
         return flask.jsonify({
             "success": True,
-            "games_fetched": len(games)
+            "games_fetched": len(new_games),
+            "total_games": len(all_games),
+            "filtered_games": len(filtered_games),
+            "mode_filter": mode_filter,
+            "teammate_filter": teammate_id
         })
 
     except Exception as e:

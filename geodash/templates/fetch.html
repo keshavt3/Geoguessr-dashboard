@@ -29,6 +29,15 @@
         </select>
     </div>
 
+    <div class="form-group">
+        <label for="modeFilter">Mode Filter:</label>
+        <select id="modeFilter" name="modeFilter">
+            <option value="all">All Games</option>
+            <option value="competitive">Competitive Only</option>
+            <option value="casual">Casual Only</option>
+        </select>
+    </div>
+
     <button type="submit" id="fetch-btn">Fetch Latest Games</button>
 </form>
 
@@ -47,12 +56,13 @@ document.getElementById('fetch-form').addEventListener('submit', async function(
     const ncfa = document.getElementById('ncfa').value;
     const teammateId = document.getElementById('teammateId').value;
     const gameType = document.getElementById('gameType').value;
+    const modeFilter = document.getElementById('modeFilter').value;
 
     btn.disabled = true;
     statusDiv.innerHTML = '<p class="loading">Fetching games... This may take a while.</p>';
 
     const endpoint = gameType === 'team' ? '/api/v1/fetch-team-duels/' : '/api/v1/fetch-latest/';
-    const body = { playerId, ncfa };
+    const body = { playerId, ncfa, modeFilter };
     if (gameType === 'team' && teammateId) {
         body.teammateId = teammateId;
     }
@@ -67,7 +77,14 @@ document.getElementById('fetch-form').addEventListener('submit', async function(
         const data = await response.json();
 
         if (data.success) {
-            statusDiv.innerHTML = `<p class="success">Success! Fetched ${data.games_fetched} games. <a href="/stats/">View Stats</a></p>`;
+            let msg = `Fetched ${data.games_fetched} new games.`;
+            if (data.total_games !== undefined) {
+                msg += ` Total: ${data.total_games} games.`;
+            }
+            if (data.message) {
+                msg = data.message;
+            }
+            statusDiv.innerHTML = `<p class="success">${msg} <a href="/stats/">View Stats</a></p>`;
         } else {
             statusDiv.innerHTML = `<p class="error">Error: ${data.error}</p>`;
         }
