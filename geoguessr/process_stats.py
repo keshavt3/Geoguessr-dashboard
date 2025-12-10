@@ -24,6 +24,9 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
     player_contrib = defaultdict(int)
     player_rounds = defaultdict(int)
 
+    # Games per player (teammate)
+    games_per_player = defaultdict(int)
+
     # Per-player totals
     player_scores = defaultdict(int)
     player_distances = defaultdict(float)
@@ -71,6 +74,10 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
         # Player IDs (assuming 2 players)
         players = list(game["playerStats"].keys())
         p1, p2 = players[0], players[1]
+
+        # Count games per player
+        games_per_player[p1] += 1
+        games_per_player[p2] += 1
 
         rounds_p1 = game["playerStats"][p1]["rounds"]
         rounds_p2 = game["playerStats"][p2]["rounds"]
@@ -200,7 +207,7 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
             if player_time_rounds[p] else 0
             for p in player_total_time
         },
-
+        "games_per_player": dict(games_per_player),
         "merchant_stats": merchant_stats,
     }
 

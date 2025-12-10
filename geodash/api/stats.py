@@ -1,4 +1,5 @@
 """REST API for GeoGuessr Dashboard statistics."""
+import time
 import flask
 import requests
 import geodash
@@ -8,33 +9,190 @@ from geoguessr.process_stats import process_duels, process_games
 from geoguessr.utils import save_json, load_data as load_json
 
 
-@geodash.app.route('/api/v1/stats/', methods=['GET'])
-def get_stats():
-    """Return processed stats overview."""
+def _fetch_username(session, player_id):
+    """Fetch username for a player ID from GeoGuessr API and cache it."""
     db = get_db()
 
-    # Get the most recent overall stats
+    # Check cache first
+    cur = db.execute("SELECT username FROM player_names WHERE player_id = ?", (player_id,))
+    row = cur.fetchone()
+    if row:
+        return row['username']
+
+    # Fetch from API
+    try:
+        resp = session.get(f"https://www.geoguessr.com/api/v3/users/{player_id}")
+        if resp.status_code == 200:
+            data = resp.json()
+            username = data.get('nick') or data.get('name') or player_id
+        else:
+            username = player_id  # Fallback to ID if API fails
+    except Exception:
+        username = player_id
+
+    # Cache the result
+    db.execute(
+        "INSERT OR REPLACE INTO player_names (player_id, username) VALUES (?, ?)",
+        (player_id, username)
+    )
+    db.commit()
+
+    time.sleep(0.1)  # Rate limiting
+    return username
+
+
+def _get_username(player_id):
+    """Get cached username for a player ID."""
+    db = get_db()
+    cur = db.execute("SELECT username FROM player_names WHERE player_id = ?", (player_id,))
+    row = cur.fetchone()
+    return row['username'] if row else player_id
+
+
+@geodash.app.route('/api/v1/teammates/', methods=['GET'])
+def get_teammates():
+    """Return list of all teammates with usernames and game counts."""
+    db = get_db()
+
+    # Get all player contributions with game counts
     cur = db.execute(
-        "SELECT * FROM overall_stats ORDER BY created_at DESC LIMIT 1"
+        """SELECT pc.player_id, pc.games_played, pn.username
+           FROM player_contributions pc
+           LEFT JOIN player_names pn ON pc.player_id = pn.player_id
+           JOIN overall_stats os ON pc.overall_stats_id = os.id
+           WHERE os.filter_type = 'team_duels_all'
+           ORDER BY os.created_at DESC"""
+    )
+    rows = cur.fetchall()
+
+    # Deduplicate by player_id (keep first occurrence which is most recent)
+    seen = set()
+    teammates = []
+    for row in rows:
+        if row['player_id'] not in seen:
+            seen.add(row['player_id'])
+            teammates.append({
+                'player_id': row['player_id'],
+                'username': row['username'] or row['player_id'],
+                'games_played': row['games_played'] or 0
+            })
+
+    # Sort by games played descending
+    teammates.sort(key=lambda x: x['games_played'], reverse=True)
+
+    return flask.jsonify({
+        "success": True,
+        "teammates": teammates
+    })
+
+
+@geodash.app.route('/api/v1/stats/', methods=['GET'])
+def get_stats():
+    """Return processed stats overview.
+
+    Query params:
+        game_type: 'duels' or 'team_duels' (default: 'duels')
+        mode: 'all', 'competitive', or 'casual' (default: 'all')
+        teammate: optional player_id to filter team stats by teammate
+    """
+    db = get_db()
+
+    game_type = flask.request.args.get('game_type', 'duels')
+    mode = flask.request.args.get('mode', 'all')
+    teammate = flask.request.args.get('teammate', '')
+    filter_type = f"{game_type}_{mode}"
+
+    # If teammate filter is set, recompute stats from JSON
+    if teammate and game_type == 'team_duels':
+        try:
+            all_team = load_json("data/team_games.json")
+        except Exception:
+            return flask.jsonify({"success": False, "error": "No team games found"}), 404
+
+        # Filter games by teammate
+        filtered_games = [
+            g for g in all_team
+            if teammate in g.get('playerStats', {}).keys()
+        ]
+
+        # Apply mode filter
+        if mode == 'competitive':
+            filtered_games = [g for g in filtered_games if g.get('isCompetitive', False)]
+        elif mode == 'casual':
+            filtered_games = [g for g in filtered_games if not g.get('isCompetitive', False)]
+
+        if not filtered_games:
+            return flask.jsonify({"success": False, "error": "No games found with this teammate"}), 404
+
+        # Process filtered games
+        stats = process_games(filtered_games)
+        overall = stats['overall']
+
+        # Build contributions with usernames
+        contributions = []
+        for pid, contrib in overall.get('player_contribution_percent', {}).items():
+            contributions.append({
+                'player_id': pid,
+                'username': _get_username(pid),
+                'contribution_percent': contrib,
+                'avg_individual_score': overall.get('avg_individual_score', {}).get(pid),
+                'total_5ks': overall.get('player_total_5ks', {}).get(pid),
+                'avg_guess_time': overall.get('avg_guess_time', {}).get(pid),
+                'games_played': overall.get('games_per_player', {}).get(pid, 0)
+            })
+
+        return flask.jsonify({
+            "success": True,
+            "data": {
+                "overall": {
+                    "total_games": overall['total_games'],
+                    "win_percentage": overall['win_percentage'],
+                    "avg_rounds_per_game": overall['avg_rounds_per_game'],
+                    "multi_merchant": overall['merchant_stats']['multi_merchant'],
+                    "reverse_merchant": overall['merchant_stats']['reverse_merchant'],
+                    "game_type": "team_duels",
+                    "filter_type": f"team_duels_{mode}_teammate"
+                },
+                "player_contributions": contributions
+            }
+        })
+
+    # Standard database lookup
+    cur = db.execute(
+        "SELECT * FROM overall_stats WHERE filter_type = ? ORDER BY created_at DESC LIMIT 1",
+        (filter_type,)
     )
     overall = cur.fetchone()
 
     if overall is None:
-        return flask.jsonify({"success": False, "error": "No stats found"}), 404
+        return flask.jsonify({"success": False, "error": f"No stats found for {filter_type}"}), 404
 
-    # Get player contributions if team duels
+    # Get player contributions if team duels, with usernames
     contributions = []
     if overall['game_type'] == 'team_duels':
         cur = db.execute(
-            "SELECT * FROM player_contributions WHERE overall_stats_id = ?",
+            """SELECT pc.*, pn.username
+               FROM player_contributions pc
+               LEFT JOIN player_names pn ON pc.player_id = pn.player_id
+               WHERE pc.overall_stats_id = ?""",
             (overall['id'],)
         )
-        contributions = cur.fetchall()
+        rows = cur.fetchall()
+        for row in rows:
+            contributions.append({
+                'player_id': row['player_id'],
+                'username': row['username'] or row['player_id'],
+                'contribution_percent': row['contribution_percent'],
+                'avg_individual_score': row['avg_individual_score'],
+                'total_5ks': row['total_5ks'],
+                'avg_guess_time': row['avg_guess_time'],
+                'games_played': row['games_played'] or 0
+            })
 
     return flask.jsonify({
         "success": True,
         "data": {
-            "overall": overall,
+            "overall": dict(overall),
             "player_contributions": contributions
         }
     })
@@ -42,21 +200,82 @@ def get_stats():
 
 @geodash.app.route('/api/v1/countries/', methods=['GET'])
 def get_countries():
-    """Return per-country statistics."""
+    """Return per-country statistics.
+
+    Query params:
+        game_type: 'duels' or 'team_duels' (default: 'duels')
+        mode: 'all', 'competitive', or 'casual' (default: 'all')
+        teammate: optional player_id to filter team stats by teammate
+    """
     db = get_db()
 
-    # Get the most recent overall stats id
+    game_type = flask.request.args.get('game_type', 'duels')
+    mode = flask.request.args.get('mode', 'all')
+    teammate = flask.request.args.get('teammate', '')
+    filter_type = f"{game_type}_{mode}"
+
+    # If teammate filter is set, recompute stats from JSON
+    if teammate and game_type == 'team_duels':
+        try:
+            all_team = load_json("data/team_games.json")
+        except Exception:
+            return flask.jsonify({"success": False, "error": "No team games found"}), 404
+
+        # Filter games by teammate
+        filtered_games = [
+            g for g in all_team
+            if teammate in g.get('playerStats', {}).keys()
+        ]
+
+        # Apply mode filter
+        if mode == 'competitive':
+            filtered_games = [g for g in filtered_games if g.get('isCompetitive', False)]
+        elif mode == 'casual':
+            filtered_games = [g for g in filtered_games if not g.get('isCompetitive', False)]
+
+        if not filtered_games:
+            return flask.jsonify({"success": False, "error": "No games found with this teammate"}), 404
+
+        # Process filtered games
+        stats = process_games(filtered_games)
+
+        # Convert countries list to expected format
+        countries = []
+        for country_code, cstats in stats.get('countries', []):
+            countries.append({
+                'country_code': country_code,
+                'rounds': cstats['rounds'],
+                'avg_score': cstats.get('avg_team_score', 0),
+                'avg_distance_km': cstats.get('avg_team_distance_km', 0),
+                'five_k_rate': 0,
+                'avg_score_diff': cstats['avg_score_diff'],
+                'hit_rate': cstats['hit_rate'],
+                'win_rate': cstats['win_rate']
+            })
+
+        eligible = [c for c in countries if c['rounds'] >= 20]
+
+        return flask.jsonify({
+            "success": True,
+            "data": {
+                "all_countries": countries,
+                "top_10": eligible[:10],
+                "bottom_10": eligible[-10:] if len(eligible) >= 10 else eligible
+            }
+        })
+
+    # Standard database lookup
     cur = db.execute(
-        "SELECT id FROM overall_stats ORDER BY created_at DESC LIMIT 1"
+        "SELECT id FROM overall_stats WHERE filter_type = ? ORDER BY created_at DESC LIMIT 1",
+        (filter_type,)
     )
     row = cur.fetchone()
 
     if row is None:
-        return flask.jsonify({"success": False, "error": "No stats found"}), 404
+        return flask.jsonify({"success": False, "error": f"No stats found for {filter_type}"}), 404
 
     overall_id = row['id']
 
-    # Get all country stats sorted by avg_score_diff
     cur = db.execute(
         """SELECT * FROM country_stats
            WHERE overall_stats_id = ?
@@ -65,7 +284,6 @@ def get_countries():
     )
     countries = cur.fetchall()
 
-    # Filter for top/bottom 10 with minimum 20 rounds
     eligible = [c for c in countries if c['rounds'] >= 20]
 
     return flask.jsonify({
@@ -78,9 +296,9 @@ def get_countries():
     })
 
 
-@geodash.app.route('/api/v1/fetch-latest/', methods=['POST'])
-def fetch_latest():
-    """Fetch latest duels games for a player."""
+@geodash.app.route('/api/v1/fetch-all/', methods=['POST'])
+def fetch_all():
+    """Fetch all games (both duels and team duels) and compute all stat variations."""
     data = flask.request.get_json()
 
     if not data or 'playerId' not in data:
@@ -90,7 +308,6 @@ def fetch_latest():
 
     player_id = data['playerId']
     ncfa = data['ncfa']
-    mode_filter = data.get('modeFilter', 'all')  # 'all', 'competitive', 'casual'
 
     try:
         # Create authenticated session
@@ -98,196 +315,178 @@ def fetch_latest():
         session.cookies.set("_ncfa", ncfa, domain="www.geoguessr.com")
         session.cookies.set("_ncfa", ncfa, domain="game-server.geoguessr.com")
 
-        # Always fetch ALL game IDs (mode info is stored with each game)
-        all_game_ids_with_mode = fetch_filtered_tokens(session, game_type="duels", mode_filter="all")
-
-        if not all_game_ids_with_mode:
-            return flask.jsonify({"success": False, "error": "No games found in feed"}), 404
-
-        # Filter out already-fetched games
         db = get_db()
-        cur = db.execute(
-            "SELECT game_id FROM fetched_games WHERE player_id = ? AND game_type = ?",
-            (player_id, 'duels')
-        )
-        existing_ids = {row['game_id'] for row in cur.fetchall()}
-        new_game_ids_with_mode = {
-            gid: mode for gid, mode in all_game_ids_with_mode.items()
-            if gid not in existing_ids
+        results = {
+            "duels": {"new": 0, "total": 0},
+            "team_duels": {"new": 0, "total": 0}
         }
 
-        # Fetch only new games (if any)
-        if new_game_ids_with_mode:
-            new_games = fetch_duels(session, new_game_ids_with_mode, player_id)
+        # --- Fetch Solo Duels ---
+        duels_game_ids = fetch_filtered_tokens(session, game_type="duels", mode_filter="all")
 
-            # Record fetched game IDs
-            for game in new_games:
-                db.execute(
-                    "INSERT OR IGNORE INTO fetched_games (game_id, player_id, game_type) VALUES (?, ?, ?)",
-                    (game['gameId'], player_id, 'duels')
-                )
-        else:
-            new_games = []
+        if duels_game_ids:
+            cur = db.execute(
+                "SELECT game_id FROM fetched_games WHERE player_id = ? AND game_type = ?",
+                (player_id, 'duels')
+            )
+            existing_ids = {row['game_id'] for row in cur.fetchall()}
+            new_duels_ids = {
+                gid: mode for gid, mode in duels_game_ids.items()
+                if gid not in existing_ids
+            }
 
-        # Load existing games and merge
+            if new_duels_ids:
+                new_duels = fetch_duels(session, new_duels_ids, player_id)
+
+                for gid in new_duels_ids.keys():
+                    db.execute(
+                        "INSERT OR IGNORE INTO fetched_games (game_id, player_id, game_type) VALUES (?, ?, ?)",
+                        (gid, player_id, 'duels')
+                    )
+                results["duels"]["new"] = len(new_duels)
+            else:
+                new_duels = []
+
+            try:
+                existing_duels = load_json("data/games.json")
+            except Exception:
+                existing_duels = []
+
+            all_duels = existing_duels + new_duels
+            save_json("data/games.json", all_duels)
+            results["duels"]["total"] = len(all_duels)
+
+        # --- Fetch Team Duels ---
+        team_game_ids = fetch_filtered_tokens(session, game_type="team", mode_filter="all")
+
+        if team_game_ids:
+            cur = db.execute(
+                "SELECT game_id FROM fetched_games WHERE player_id = ? AND game_type = ?",
+                (player_id, 'team_duels')
+            )
+            existing_ids = {row['game_id'] for row in cur.fetchall()}
+            new_team_ids = {
+                gid: mode for gid, mode in team_game_ids.items()
+                if gid not in existing_ids
+            }
+
+            if new_team_ids:
+                new_team = fetch_team_duels(session, new_team_ids, player_id)
+
+                for gid in new_team_ids.keys():
+                    db.execute(
+                        "INSERT OR IGNORE INTO fetched_games (game_id, player_id, game_type) VALUES (?, ?, ?)",
+                        (gid, player_id, 'team_duels')
+                    )
+                results["team_duels"]["new"] = len(new_team)
+            else:
+                new_team = []
+
+            try:
+                existing_team = load_json("data/team_games.json")
+            except Exception:
+                existing_team = []
+
+            all_team = existing_team + new_team
+            save_json("data/team_games.json", all_team)
+            results["team_duels"]["total"] = len(all_team)
+
+        # --- Fetch usernames for all players in team games ---
         try:
-            existing_games = load_json("data/games.json")
-        except Exception:
-            existing_games = []
+            all_team = load_json("data/team_games.json")
+            player_ids = set()
+            for game in all_team:
+                player_ids.update(game.get('playerStats', {}).keys())
 
-        all_games = existing_games + new_games
-        save_json("data/games.json", all_games)
+            print(f"Fetching usernames for {len(player_ids)} players...")
+            for pid in player_ids:
+                _fetch_username(session, pid)
+        except Exception as e:
+            print(f"Error fetching usernames: {e}")
 
-        # Apply mode filter for processing
-        if mode_filter == 'competitive':
-            filtered_games = [g for g in all_games if g.get('isCompetitive', False)]
-        elif mode_filter == 'casual':
-            filtered_games = [g for g in all_games if not g.get('isCompetitive', False)]
-        else:
-            filtered_games = all_games
-
-        # Process filtered games
-        stats = process_duels(filtered_games)
-
-        # Save to database
-        _save_stats_to_db(player_id, 'duels', stats)
+        # --- Compute and store all stat variations ---
+        _compute_and_store_all_variations(player_id)
 
         return flask.jsonify({
             "success": True,
-            "games_fetched": len(new_games),
-            "total_games": len(all_games),
-            "filtered_games": len(filtered_games),
-            "mode_filter": mode_filter
+            "duels_fetched": results["duels"]["new"],
+            "duels_total": results["duels"]["total"],
+            "team_duels_fetched": results["team_duels"]["new"],
+            "team_duels_total": results["team_duels"]["total"]
         })
 
     except Exception as e:
         return flask.jsonify({"success": False, "error": str(e)}), 500
 
 
-@geodash.app.route('/api/v1/fetch-team-duels/', methods=['POST'])
-def fetch_team_duels_api():
-    """Fetch latest team duels games."""
-    data = flask.request.get_json()
-
-    if not data or 'playerId' not in data:
-        return flask.jsonify({"success": False, "error": "playerId is required"}), 400
-    if 'ncfa' not in data:
-        return flask.jsonify({"success": False, "error": "ncfa is required"}), 400
-
-    player_id = data['playerId']
-    ncfa = data['ncfa']
-    teammate_id = data.get('teammateId')
-    mode_filter = data.get('modeFilter', 'all')  # 'all', 'competitive', 'casual'
+def _compute_and_store_all_variations(player_id):
+    """Compute and store stats for all 6 filter combinations."""
+    try:
+        all_duels = load_json("data/games.json")
+    except Exception:
+        all_duels = []
 
     try:
-        # Create authenticated session
-        session = requests.Session()
-        session.cookies.set("_ncfa", ncfa, domain="www.geoguessr.com")
-        session.cookies.set("_ncfa", ncfa, domain="game-server.geoguessr.com")
+        all_team = load_json("data/team_games.json")
+    except Exception:
+        all_team = []
 
-        # Always fetch ALL game IDs (mode info is stored with each game)
-        all_game_ids_with_mode = fetch_filtered_tokens(session, game_type="team", mode_filter="all")
+    # Duels variations
+    if all_duels:
+        stats = process_duels(all_duels)
+        _save_stats_to_db(player_id, 'duels', 'duels_all', stats)
 
-        if not all_game_ids_with_mode:
-            return flask.jsonify({"success": False, "error": "No games found in feed"}), 404
+        competitive = [g for g in all_duels if g.get('isCompetitive', False)]
+        if competitive:
+            stats = process_duels(competitive)
+            _save_stats_to_db(player_id, 'duels', 'duels_competitive', stats)
 
-        # Filter out already-fetched games
-        db = get_db()
-        cur = db.execute(
-            "SELECT game_id FROM fetched_games WHERE player_id = ? AND game_type = ?",
-            (player_id, 'team_duels')
-        )
-        existing_ids = {row['game_id'] for row in cur.fetchall()}
-        new_game_ids_with_mode = {
-            gid: mode for gid, mode in all_game_ids_with_mode.items()
-            if gid not in existing_ids
-        }
+        casual = [g for g in all_duels if not g.get('isCompetitive', False)]
+        if casual:
+            stats = process_duels(casual)
+            _save_stats_to_db(player_id, 'duels', 'duels_casual', stats)
 
-        # Fetch only new games
-        if new_game_ids_with_mode:
-            new_games = fetch_team_duels(session, new_game_ids_with_mode, player_id, teammate_id)
+    # Team duels variations
+    if all_team:
+        stats = process_games(all_team)
+        _save_stats_to_db(player_id, 'team_duels', 'team_duels_all', stats)
 
-            # Record ALL fetched game IDs
-            for gid in new_game_ids_with_mode.keys():
-                db.execute(
-                    "INSERT OR IGNORE INTO fetched_games (game_id, player_id, game_type) VALUES (?, ?, ?)",
-                    (gid, player_id, 'team_duels')
-                )
-        else:
-            new_games = []
+        competitive = [g for g in all_team if g.get('isCompetitive', False)]
+        if competitive:
+            stats = process_games(competitive)
+            _save_stats_to_db(player_id, 'team_duels', 'team_duels_competitive', stats)
 
-        # Load existing games
-        try:
-            existing_games = load_json("data/team_games.json")
-        except Exception:
-            existing_games = []
-
-        # Merge all games
-        all_games = existing_games + new_games
-        save_json("data/team_games.json", all_games)
-
-        # Apply filters for processing
-        filtered_games = all_games
-
-        # Mode filter
-        if mode_filter == 'competitive':
-            filtered_games = [g for g in filtered_games if g.get('isCompetitive', False)]
-        elif mode_filter == 'casual':
-            filtered_games = [g for g in filtered_games if not g.get('isCompetitive', False)]
-
-        # Teammate filter
-        if teammate_id:
-            filtered_games = [
-                g for g in filtered_games
-                if any(pid == teammate_id for pid in g.get('playerStats', {}).keys())
-            ]
-
-        # Process filtered games
-        stats = process_games(filtered_games)
-
-        # Save to database
-        _save_stats_to_db(player_id, 'team_duels', stats)
-
-        return flask.jsonify({
-            "success": True,
-            "games_fetched": len(new_games),
-            "total_games": len(all_games),
-            "filtered_games": len(filtered_games),
-            "mode_filter": mode_filter,
-            "teammate_filter": teammate_id
-        })
-
-    except Exception as e:
-        return flask.jsonify({"success": False, "error": str(e)}), 500
+        casual = [g for g in all_team if not g.get('isCompetitive', False)]
+        if casual:
+            stats = process_games(casual)
+            _save_stats_to_db(player_id, 'team_duels', 'team_duels_casual', stats)
 
 
-def _save_stats_to_db(player_id, game_type, stats):
+def _save_stats_to_db(player_id, game_type, filter_type, stats):
     """Save processed stats to the database."""
     db = get_db()
 
     overall = stats['overall']
 
-    # Insert overall stats
     if game_type == 'duels':
         cur = db.execute(
             """INSERT INTO overall_stats
-               (player_id, game_type, total_games, win_percentage, avg_rounds_per_game,
+               (player_id, game_type, filter_type, total_games, win_percentage, avg_rounds_per_game,
                 avg_score, total_5ks, avg_guess_time, multi_merchant, reverse_merchant)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (player_id, game_type, overall['total_games'], overall['win_percentage'],
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (player_id, game_type, filter_type, overall['total_games'], overall['win_percentage'],
              overall['avg_rounds_per_game'], overall.get('avg_score'),
              overall.get('total_5ks'), overall.get('avg_guess_time'),
              overall['merchant_stats']['multi_merchant'],
              overall['merchant_stats']['reverse_merchant'])
         )
     else:
-        # Team duels
         cur = db.execute(
             """INSERT INTO overall_stats
-               (player_id, game_type, total_games, win_percentage, avg_rounds_per_game,
+               (player_id, game_type, filter_type, total_games, win_percentage, avg_rounds_per_game,
                 multi_merchant, reverse_merchant)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (player_id, game_type, overall['total_games'], overall['win_percentage'],
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (player_id, game_type, filter_type, overall['total_games'], overall['win_percentage'],
              overall['avg_rounds_per_game'],
              overall['merchant_stats']['multi_merchant'],
              overall['merchant_stats']['reverse_merchant'])
@@ -297,20 +496,21 @@ def _save_stats_to_db(player_id, game_type, stats):
 
     # Insert player contributions (for team duels)
     if game_type == 'team_duels':
+        games_per_player = overall.get('games_per_player', {})
         for pid, contrib in overall.get('player_contribution_percent', {}).items():
             db.execute(
                 """INSERT INTO player_contributions
                    (overall_stats_id, player_id, contribution_percent, avg_individual_score,
-                    total_5ks, avg_guess_time)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
+                    total_5ks, avg_guess_time, games_played)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (overall_id, pid, contrib,
                  overall.get('avg_individual_score', {}).get(pid),
                  overall.get('player_total_5ks', {}).get(pid),
-                 overall.get('avg_guess_time', {}).get(pid))
+                 overall.get('avg_guess_time', {}).get(pid),
+                 games_per_player.get(pid, 0))
             )
 
     # Insert country stats
-    # stats['countries'] is a list of tuples: (country_code, stats_dict)
     for country_code, cstats in stats.get('countries', []):
         db.execute(
             """INSERT INTO country_stats

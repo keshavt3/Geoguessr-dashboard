@@ -93,6 +93,40 @@ button:disabled {
     cursor: not-allowed;
 }
 
+/* Filters */
+#filters {
+    display: flex;
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+    padding: 1rem;
+    background: #16213e;
+    border-radius: 8px;
+}
+
+.filter-group {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.filter-group label {
+    color: #aaa;
+    font-size: 0.9rem;
+}
+
+.filter-group select {
+    padding: 0.5rem 1rem;
+    border: 1px solid #333;
+    border-radius: 4px;
+    background: #0f0f23;
+    color: #eee;
+    cursor: pointer;
+}
+
+.filter-group select:hover {
+    border-color: #00d9ff;
+}
+
 /* Status messages */
 #status {
     margin-top: 1rem;
@@ -159,6 +193,12 @@ button:disabled {
 .player-card p {
     font-size: 0.9rem;
     color: #ccc;
+}
+
+.player-card .games-count {
+    color: #00d9ff;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
 }
 
 /* Tables */

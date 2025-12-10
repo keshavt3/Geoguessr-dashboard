@@ -5,9 +5,33 @@
 {% block content %}
 <h1>GeoGuessr Statistics</h1>
 
+<div id="filters">
+    <div class="filter-group">
+        <label for="gameType">Game Type:</label>
+        <select id="gameType">
+            <option value="duels">Solo Duels</option>
+            <option value="team_duels">Team Duels</option>
+        </select>
+    </div>
+    <div class="filter-group">
+        <label for="mode">Mode:</label>
+        <select id="mode">
+            <option value="all">All Games</option>
+            <option value="competitive">Competitive</option>
+            <option value="casual">Casual</option>
+        </select>
+    </div>
+    <div class="filter-group" id="teammate-filter" style="display: none;">
+        <label for="teammate">Teammate:</label>
+        <select id="teammate">
+            <option value="">All Teammates</option>
+        </select>
+    </div>
+</div>
+
 <div id="loading">Loading stats...</div>
 <div id="no-stats" style="display: none;">
-    <p>No stats found. <a href="{{ url_for('show_fetch') }}">Fetch some games first</a>.</p>
+    <p>No stats found for this filter. <a href="{{ url_for('show_fetch') }}">Fetch some games first</a>.</p>
 </div>
 
 <div id="stats-container" style="display: none;">
@@ -63,14 +87,73 @@
 
 {% block scripts %}
 <script>
+const gameTypeSelect = document.getElementById('gameType');
+const modeSelect = document.getElementById('mode');
+const teammateSelect = document.getElementById('teammate');
+const teammateFilter = document.getElementById('teammate-filter');
+
+// Load stats when filters change
+gameTypeSelect.addEventListener('change', onGameTypeChange);
+modeSelect.addEventListener('change', loadStats);
+teammateSelect.addEventListener('change', loadStats);
+
+async function onGameTypeChange() {
+    const gameType = gameTypeSelect.value;
+
+    if (gameType === 'team_duels') {
+        teammateFilter.style.display = 'flex';
+        await loadTeammates();
+    } else {
+        teammateFilter.style.display = 'none';
+        teammateSelect.value = '';
+    }
+
+    loadStats();
+}
+
+async function loadTeammates() {
+    try {
+        const res = await fetch('/api/v1/teammates/');
+        const data = await res.json();
+
+        if (data.success && data.teammates) {
+            // Keep "All Teammates" option
+            teammateSelect.innerHTML = '<option value="">All Teammates</option>';
+
+            data.teammates.forEach(t => {
+                const option = document.createElement('option');
+                option.value = t.player_id;
+                option.textContent = `${t.username} (${t.games_played} games)`;
+                teammateSelect.appendChild(option);
+            });
+        }
+    } catch (err) {
+        console.error('Error loading teammates:', err);
+    }
+}
+
 async function loadStats() {
     const loading = document.getElementById('loading');
     const noStats = document.getElementById('no-stats');
     const container = document.getElementById('stats-container');
 
+    const gameType = gameTypeSelect.value;
+    const mode = modeSelect.value;
+    const teammate = teammateSelect.value;
+
+    loading.style.display = 'block';
+    noStats.style.display = 'none';
+    container.style.display = 'none';
+
     try {
-        // Fetch overall stats
-        const statsRes = await fetch('/api/v1/stats/');
+        // Build query string
+        let queryParams = `game_type=${gameType}&mode=${mode}`;
+        if (teammate) {
+            queryParams += `&teammate=${teammate}`;
+        }
+
+        // Fetch overall stats with filters
+        const statsRes = await fetch(`/api/v1/stats/?${queryParams}`);
         const statsData = await statsRes.json();
 
         if (!statsData.success) {
@@ -79,8 +162,8 @@ async function loadStats() {
             return;
         }
 
-        // Fetch country stats
-        const countriesRes = await fetch('/api/v1/countries/');
+        // Fetch country stats with filters
+        const countriesRes = await fetch(`/api/v1/countries/?${queryParams}`);
         const countriesData = await countriesRes.json();
 
         // Render overall stats
@@ -126,19 +209,23 @@ async function loadStats() {
 
         // Render player contributions if available
         const contributions = statsData.data.player_contributions;
-        if (contributions && contributions.length > 0) {
-            const contribSection = document.getElementById('player-contributions');
-            const contribGrid = document.getElementById('contributions-grid');
-            contribSection.style.display = 'block';
+        const contribSection = document.getElementById('player-contributions');
+        const contribGrid = document.getElementById('contributions-grid');
 
+        if (contributions && contributions.length > 0) {
+            contribSection.style.display = 'block';
             contribGrid.innerHTML = contributions.map(p => `
                 <div class="player-card">
-                    <h4>${p.player_id}</h4>
+                    <h4>${p.username || p.player_id}</h4>
+                    <p class="games-count">${p.games_played} games</p>
                     <p>Contribution: ${(p.contribution_percent * 100).toFixed(1)}%</p>
                     ${p.avg_individual_score ? `<p>Avg Score: ${p.avg_individual_score.toFixed(0)}</p>` : ''}
                     ${p.total_5ks ? `<p>5Ks: ${p.total_5ks}</p>` : ''}
+                    ${p.avg_guess_time ? `<p>Avg Time: ${p.avg_guess_time.toFixed(1)}s</p>` : ''}
                 </div>
             `).join('');
+        } else {
+            contribSection.style.display = 'none';
         }
 
         // Render country tables
@@ -157,6 +244,10 @@ async function loadStats() {
 
 function renderCountryTable(tableId, countries) {
     const tbody = document.querySelector(`#${tableId} tbody`);
+    if (!countries || countries.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6">No data available</td></tr>';
+        return;
+    }
     tbody.innerHTML = countries.map(c => `
         <tr>
             <td>${c.country_code.toUpperCase()}</td>
@@ -169,6 +260,7 @@ function renderCountryTable(tableId, countries) {
     `).join('');
 }
 
+// Load stats on page load
 loadStats();
 </script>
 {% endblock %}
