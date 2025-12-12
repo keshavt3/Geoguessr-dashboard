@@ -96,6 +96,16 @@ def fetch_team_duels(session, game_ids_with_mode, my_id, teammate_id=None):
 
             game = resp.json()
 
+            # Validate this is a standard 2v2 team duel (exactly 2 teams, 2 players each)
+            teams = game.get("teams", [])
+            if len(teams) != 2:
+                print(f"Skipping game {game_id}: expected 2 teams, got {len(teams)}")
+                continue
+            if any(len(t.get("players", [])) != 2 for t in teams):
+                player_counts = [len(t.get("players", [])) for t in teams]
+                print(f"Skipping game {game_id}: expected 2 players per team, got {player_counts}")
+                continue
+
             # Find my team and enemy team
             my_team = next((t for t in game["teams"] if any(p["playerId"] == my_id for p in t["players"])), None)
             if not my_team:
@@ -129,14 +139,17 @@ def fetch_team_duels(session, game_ids_with_mode, my_id, teammate_id=None):
                     p_stats["distance"] += guess["distance"]
                     p_stats["score"] += guess["score"]
 
+                    panorama = round_info.get("panorama", {})
                     p_stats["rounds"].append({
                         "roundNumber": guess["roundNumber"],
                         "distance": guess["distance"],
                         "score": guess["score"],
                         "time": round_time,
-                        "country": round_info.get("panorama", {}).get("countryCode"),
+                        "country": panorama.get("countryCode"),
                         "lat": guess["lat"],
-                        "lng": guess["lng"]
+                        "lng": guess["lng"],
+                        "actualLat": panorama.get("lat"),
+                        "actualLng": panorama.get("lng")
                     })
 
                     r = rounds_map.setdefault(guess["roundNumber"], {"totalDistance": 0, "totalScore": 0, "totalHealthChange": 0, "countries": set()})
@@ -218,6 +231,16 @@ def fetch_duels(session, game_ids_with_mode, my_id):
 
             game = resp.json()
 
+            # Validate this is a standard 1v1 duel (exactly 2 teams, 1 player each)
+            teams = game.get("teams", [])
+            if len(teams) != 2:
+                print(f"Skipping game {game_id}: expected 2 teams, got {len(teams)}")
+                continue
+            if any(len(t.get("players", [])) != 1 for t in teams):
+                player_counts = [len(t.get("players", [])) for t in teams]
+                print(f"Skipping game {game_id}: expected 1 player per team, got {player_counts}")
+                continue
+
             # Identify me and the enemy
             my_player = None
             my_team = None
@@ -231,7 +254,7 @@ def fetch_duels(session, game_ids_with_mode, my_id):
                         enemy_player = player
 
             if not my_player or not enemy_player:
-                print("bad token")
+                print(f"Skipping game {game_id}: player not found in game")
                 continue
 
             # Prepare per-round stats
@@ -257,8 +280,9 @@ def fetch_duels(session, game_ids_with_mode, my_id):
                 my_stats["totalScore"] += guess["score"]
 
                 r = rounds_map.setdefault(guess["roundNumber"], {"myScore": 0, "enemyScore": 0, "totalHealthChange": 0, "country": None})
+                panorama = round_info.get("panorama", {})
                 r["myScore"] = guess["score"]
-                r["country"] = round_info.get("panorama", {}).get("countryCode")
+                r["country"] = panorama.get("countryCode")
 
                 my_stats["rounds"].append({
                     "roundNumber": guess["roundNumber"],
@@ -267,7 +291,9 @@ def fetch_duels(session, game_ids_with_mode, my_id):
                     "time": round_time,
                     "country": r["country"],
                     "lat": guess["lat"],
-                    "lng": guess["lng"]
+                    "lng": guess["lng"],
+                    "actualLat": panorama.get("lat"),
+                    "actualLng": panorama.get("lng")
                 })
 
             # Health changes and enemy scores

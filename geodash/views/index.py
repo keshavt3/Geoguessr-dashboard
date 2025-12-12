@@ -19,3 +19,9 @@ def show_fetch():
 def show_stats():
     """Display stats page."""
     return flask.render_template('stats.html')
+
+
+@geodash.app.route('/countries/<country_code>/', methods=['GET'])
+def show_country(country_code):
+    """Display stats for a specific country."""
+    return flask.render_template('country.html', country_code=country_code)

@@ -51,6 +51,12 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
     })
 
     for game in games:
+        # Validate this is a standard 2-player team game
+        players = list(game["playerStats"].keys())
+        if len(players) != 2:
+            print(f"Skipping game {game.get('gameId', 'unknown')}: expected 2 players, got {len(players)}")
+            continue
+
         total_games += 1
 
         # Win/loss
@@ -58,7 +64,7 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
             total_wins += 1
 
         # Multi-merchant check
-        
+
         score_diff = game["teamStats"].get("scoreDiff", 0)
         lost_game = game["teamStats"]["totalHealthChange"] == -6000
         won_game = game["teamStats"]["totalHealthChange"] > -6000
@@ -71,8 +77,7 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
         if won_game and score_diff < 0:
             merchant_stats["reverse_merchant"] += 1
 
-        # Player IDs (assuming 2 players)
-        players = list(game["playerStats"].keys())
+        # Player IDs
         p1, p2 = players[0], players[1]
 
         # Count games per player

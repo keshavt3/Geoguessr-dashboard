@@ -82,6 +82,22 @@
             </table>
         </div>
     </section>
+
+    <section id="world-map-section">
+        <h2>World Map</h2>
+        <p class="map-legend">
+            <span class="legend-item"><span class="legend-color score-3"></span> +200+</span>
+            <span class="legend-item"><span class="legend-color score-2"></span> +100 to +200</span>
+            <span class="legend-item"><span class="legend-color score-1"></span> 0 to +100</span>
+            <span class="legend-item"><span class="legend-color score--1"></span> -100 to 0</span>
+            <span class="legend-item"><span class="legend-color score--2"></span> -200 to -100</span>
+            <span class="legend-item"><span class="legend-color score--3"></span> -200-</span>
+            <span class="legend-item"><span class="legend-color unplayed"></span> No Data</span>
+        </p>
+        <div id="map-container">
+            <p id="map-loading">Loading map...</p>
+        </div>
+    </section>
 </div>
 {% endblock %}
 
@@ -91,6 +107,106 @@ const gameTypeSelect = document.getElementById('gameType');
 const modeSelect = document.getElementById('mode');
 const teammateSelect = document.getElementById('teammate');
 const teammateFilter = document.getElementById('teammate-filter');
+
+// Store countries data for map coloring
+let allCountriesData = [];
+let mapLoaded = false;
+
+// Load the SVG map on page load
+async function loadWorldMap() {
+    const container = document.getElementById('map-container');
+    try {
+        const response = await fetch('/static/svg/world-map.svg');
+        if (!response.ok) throw new Error('Failed to load map');
+        const svgText = await response.text();
+        container.innerHTML = svgText;
+        mapLoaded = true;
+        // Color the map if we already have data
+        if (allCountriesData.length > 0) {
+            updateWorldMap(allCountriesData);
+        }
+    } catch (err) {
+        container.innerHTML = '<p class="error">Could not load map</p>';
+        console.error('Error loading map:', err);
+    }
+}
+
+function updateWorldMap(countries) {
+    if (!mapLoaded) return;
+
+    // Build lookup by country code (lowercase)
+    const countryLookup = {};
+    countries.forEach(c => {
+        countryLookup[c.country_code.toLowerCase()] = c;
+    });
+
+    // Get all elements with IDs in the map (both paths and groups)
+    const mapContainer = document.querySelector('#map-container svg');
+    if (!mapContainer) return;
+
+    // Process all elements with an id attribute
+    const elementsWithId = mapContainer.querySelectorAll('[id]');
+
+    elementsWithId.forEach(element => {
+        const code = element.id.toLowerCase();
+        // Skip non-country IDs (like "world-map")
+        if (code === 'world-map' || code.length > 3) return;
+
+        const stats = countryLookup[code];
+
+        // Get all paths within this element (or the element itself if it's a path)
+        const paths = element.tagName === 'path' ? [element] : element.querySelectorAll('path');
+
+        paths.forEach(path => {
+            // Reset classes
+            path.classList.remove('played', 'score-3', 'score-2', 'score-1', 'score--1', 'score--2', 'score--3');
+
+            if (stats && stats.rounds > 0) {
+                path.classList.add('played');
+
+                // Color based on avg_score_diff (6-tier gradient)
+                const diff = stats.avg_score_diff;
+                if (diff >= 200) {
+                    path.classList.add('score-3');      // Dark green
+                } else if (diff >= 100) {
+                    path.classList.add('score-2');      // Medium green
+                } else if (diff >= 0) {
+                    path.classList.add('score-1');      // Light green
+                } else if (diff >= -100) {
+                    path.classList.add('score--1');     // Yellow/Gold
+                } else if (diff >= -200) {
+                    path.classList.add('score--2');     // Orange
+                } else {
+                    path.classList.add('score--3');     // Red
+                }
+
+                // Add click handler
+                path.onclick = (e) => {
+                    e.stopPropagation();
+                    navigateToCountry(code);
+                };
+            } else {
+                // Remove click handler for unplayed countries
+                path.onclick = null;
+            }
+        });
+    });
+}
+
+function navigateToCountry(countryCode) {
+    const gameType = gameTypeSelect.value;
+    const mode = modeSelect.value;
+    const teammate = teammateSelect.value;
+
+    let url = `/countries/${countryCode}/?game_type=${gameType}&mode=${mode}`;
+    if (teammate) {
+        url += `&teammate=${teammate}`;
+    }
+    window.location.href = url;
+}
+
+// Load map on page load
+loadWorldMap();
 
 // Load stats when filters change
 gameTypeSelect.addEventListener('change', onGameTypeChange);
@@ -228,10 +344,14 @@ async function loadStats() {
             contribSection.style.display = 'none';
         }
 
-        // Render country tables
+        // Render country tables and update map
         if (countriesData.success) {
             renderCountryTable('top-countries', countriesData.data.top_10);
             renderCountryTable('bottom-countries', countriesData.data.bottom_10);
+
+            // Store all countries data and update the map
+            allCountriesData = countriesData.data.all_countries || [];
+            updateWorldMap(allCountriesData);
         }
 
         loading.style.display = 'none';

@@ -232,3 +232,138 @@ tr:nth-child(even) {
 td {
     border-top: 1px solid #333;
 }
+
+/* World Map Section */
+#world-map-section {
+    margin-top: 2rem;
+}
+
+#map-container {
+    background: #16213e;
+    border-radius: 8px;
+    padding: 1rem;
+    overflow: hidden;
+}
+
+#map-container svg {
+    width: 100%;
+    height: auto;
+    max-height: 500px;
+}
+
+/* Country paths */
+#map-container path {
+    fill: #333;
+    stroke: #555;
+    stroke-width: 0.5;
+    cursor: default;
+    transition: fill 0.2s, opacity 0.2s;
+}
+
+#map-container path.played {
+    cursor: pointer;
+}
+
+#map-container path.played:hover {
+    opacity: 0.8;
+    stroke: #00d9ff;
+    stroke-width: 1.5;
+}
+
+/* Score diff coloring - 6-tier gradient from red to green */
+#map-container path.score-3 {
+    fill: #00994d;  /* Dark green: +200 and above */
+}
+
+#map-container path.score-2 {
+    fill: #33cc33;  /* Medium green: +100 to +200 */
+}
+
+#map-container path.score-1 {
+    fill: #99e699;  /* Light green: 0 to +100 */
+}
+
+#map-container path.score--1 {
+    fill: #f1c40f;  /* Yellow/Gold: -100 to 0 */
+}
+
+#map-container path.score--2 {
+    fill: #e67e22;  /* Orange: -200 to -100 */
+}
+
+#map-container path.score--3 {
+    fill: #cc3333;  /* Red: -200 and below */
+}
+
+/* Legend */
+.map-legend {
+    display: flex;
+    gap: 1.5rem;
+    margin-bottom: 1rem;
+    color: #aaa;
+    font-size: 0.9rem;
+    flex-wrap: wrap;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.legend-color {
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+}
+
+.legend-color.score-3 {
+    background: #00994d;
+}
+
+.legend-color.score-2 {
+    background: #33cc33;
+}
+
+.legend-color.score-1 {
+    background: #99e699;
+}
+
+.legend-color.score--1 {
+    background: #f1c40f;
+}
+
+.legend-color.score--2 {
+    background: #e67e22;
+}
+
+.legend-color.score--3 {
+    background: #cc3333;
+}
+
+.legend-color.unplayed {
+    background: #333;
+}
+
+/* Country detail page */
+.back-link {
+    display: inline-block;
+    color: #00d9ff;
+    margin-bottom: 1rem;
+    text-decoration: none;
+}
+
+.back-link:hover {
+    text-decoration: underline;
+}
+
+#country-name {
+    text-transform: uppercase;
+}
+
+/* Map loading state */
+#map-loading {
+    color: #ffcc00;
+    text-align: center;
+    padding: 2rem;
+}

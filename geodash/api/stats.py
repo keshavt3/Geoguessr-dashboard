@@ -54,6 +54,15 @@ def get_teammates():
     """Return list of all teammates with usernames and game counts."""
     db = get_db()
 
+    # Get the main player_id (the user) from overall_stats
+    cur = db.execute(
+        """SELECT player_id FROM overall_stats
+           WHERE filter_type = 'team_duels_all'
+           ORDER BY created_at DESC LIMIT 1"""
+    )
+    row = cur.fetchone()
+    main_player_id = row['player_id'] if row else None
+
     # Get all player contributions with game counts
     cur = db.execute(
         """SELECT pc.player_id, pc.games_played, pn.username
@@ -66,10 +75,11 @@ def get_teammates():
     rows = cur.fetchall()
 
     # Deduplicate by player_id (keep first occurrence which is most recent)
+    # Exclude the main player (can't be teammate with yourself)
     seen = set()
     teammates = []
     for row in rows:
-        if row['player_id'] not in seen:
+        if row['player_id'] not in seen and row['player_id'] != main_player_id:
             seen.add(row['player_id'])
             teammates.append({
                 'player_id': row['player_id'],
@@ -292,6 +302,202 @@ def get_countries():
             "all_countries": countries,
             "top_10": eligible[:10],
             "bottom_10": eligible[-10:] if len(eligible) >= 10 else eligible
+        }
+    })
+
+
+@geodash.app.route('/api/v1/countries/<country_code>/details/', methods=['GET'])
+def get_country_details(country_code):
+    """Return detailed analytics for a specific country.
+
+    Query params:
+        game_type: 'duels' or 'team_duels' (default: 'team_duels')
+        mode: 'all', 'competitive', or 'casual' (default: 'all')
+        teammate: optional player_id to filter team stats by teammate
+
+    Returns:
+        - heatmap_data: actual and guess coordinates for all rounds
+        - wrong_guesses: most common incorrectly guessed countries
+        - distance_distribution: breakdown of guess distances
+        - region_stats: performance by region within the country
+    """
+    import reverse_geocoder as rg
+
+    game_type = flask.request.args.get('game_type', 'team_duels')
+    mode = flask.request.args.get('mode', 'all')
+    teammate = flask.request.args.get('teammate', '')
+
+    country_code = country_code.lower()
+
+    # Load appropriate game data
+    try:
+        if game_type == 'team_duels':
+            games = load_json("data/team_games.json")
+        else:
+            games = load_json("data/games.json")
+    except Exception:
+        return flask.jsonify({"success": False, "error": "No games found"}), 404
+
+    # Apply filters
+    if mode == 'competitive':
+        games = [g for g in games if g.get('isCompetitive', False)]
+    elif mode == 'casual':
+        games = [g for g in games if not g.get('isCompetitive', False)]
+
+    if teammate and game_type == 'team_duels':
+        games = [g for g in games if teammate in g.get('playerStats', {}).keys()]
+
+    # Collect all rounds for this country
+    rounds_data = []
+
+    for game in games:
+        if game_type == 'team_duels':
+            for player_id, player_stats in game.get('playerStats', {}).items():
+                for round_data in player_stats.get('rounds', []):
+                    if round_data.get('country', '').lower() == country_code:
+                        rounds_data.append({
+                            'distance': round_data.get('distance', 0),
+                            'score': round_data.get('score', 0),
+                            'guessLat': round_data.get('lat'),
+                            'guessLng': round_data.get('lng'),
+                            'actualLat': round_data.get('actualLat'),
+                            'actualLng': round_data.get('actualLng'),
+                            'time': round_data.get('time')
+                        })
+        else:
+            for round_data in game.get('playerStats', {}).get('rounds', []):
+                if round_data.get('country', '').lower() == country_code:
+                    rounds_data.append({
+                        'distance': round_data.get('distance', 0),
+                        'score': round_data.get('score', 0),
+                        'guessLat': round_data.get('lat'),
+                        'guessLng': round_data.get('lng'),
+                        'actualLat': round_data.get('actualLat'),
+                        'actualLng': round_data.get('actualLng'),
+                        'time': round_data.get('time')
+                    })
+
+    if not rounds_data:
+        return flask.jsonify({"success": False, "error": "No rounds found for this country"}), 404
+
+    # 1. Heatmap data - actual and guess coordinates
+    heatmap_data = {
+        'actual': [],
+        'guess': []
+    }
+    for r in rounds_data:
+        if r['actualLat'] is not None and r['actualLng'] is not None:
+            heatmap_data['actual'].append({'lat': r['actualLat'], 'lng': r['actualLng']})
+        if r['guessLat'] is not None and r['guessLng'] is not None:
+            heatmap_data['guess'].append({'lat': r['guessLat'], 'lng': r['guessLng']})
+
+    # 2. Wrong guess countries - reverse geocode guess coordinates
+    wrong_guesses = {}
+    guess_coords = [(r['guessLat'], r['guessLng']) for r in rounds_data
+                    if r['guessLat'] is not None and r['guessLng'] is not None]
+
+    if guess_coords:
+        try:
+            geo_results = rg.search(guess_coords)
+            for i, result in enumerate(geo_results):
+                guessed_country = result['cc'].lower()
+                if guessed_country != country_code:
+                    wrong_guesses[guessed_country] = wrong_guesses.get(guessed_country, 0) + 1
+        except Exception as e:
+            print(f"Reverse geocoding error: {e}")
+
+    # Sort wrong guesses by frequency
+    wrong_guesses_list = sorted(
+        [{'country': k, 'count': v} for k, v in wrong_guesses.items()],
+        key=lambda x: x['count'],
+        reverse=True
+    )[:10]  # Top 10
+
+    # 3. Distance distribution
+    distances = [r['distance'] for r in rounds_data]
+    distance_buckets = {
+        '0-100m': 0,
+        '100m-1km': 0,
+        '1-10km': 0,
+        '10-50km': 0,
+        '50-200km': 0,
+        '200-1000km': 0,
+        '1000km+': 0
+    }
+
+    for d in distances:
+        if d <= 100:
+            distance_buckets['0-100m'] += 1
+        elif d <= 1000:
+            distance_buckets['100m-1km'] += 1
+        elif d <= 10000:
+            distance_buckets['1-10km'] += 1
+        elif d <= 50000:
+            distance_buckets['10-50km'] += 1
+        elif d <= 200000:
+            distance_buckets['50-200km'] += 1
+        elif d <= 1000000:
+            distance_buckets['200-1000km'] += 1
+        else:
+            distance_buckets['1000km+'] += 1
+
+    # Calculate statistics
+    sorted_distances = sorted(distances)
+    n = len(sorted_distances)
+    avg_distance = sum(distances) / n if n > 0 else 0
+    median_distance = sorted_distances[n // 2] if n > 0 else 0
+    p95_distance = sorted_distances[int(n * 0.95)] if n > 0 else 0
+
+    distance_distribution = {
+        'buckets': distance_buckets,
+        'stats': {
+            'count': n,
+            'avg_km': avg_distance / 1000,
+            'median_km': median_distance / 1000,
+            'p95_km': p95_distance / 1000
+        }
+    }
+
+    # 4. Region stats - reverse geocode actual locations to get regions
+    region_stats = {}
+    actual_coords = [(r['actualLat'], r['actualLng']) for r in rounds_data
+                     if r['actualLat'] is not None and r['actualLng'] is not None]
+
+    if actual_coords:
+        try:
+            geo_results = rg.search(actual_coords)
+            for i, result in enumerate(geo_results):
+                region = result.get('admin1', 'Unknown')
+                if region not in region_stats:
+                    region_stats[region] = {'rounds': 0, 'total_distance': 0, 'distances': []}
+                region_stats[region]['rounds'] += 1
+                region_stats[region]['total_distance'] += rounds_data[i]['distance']
+                region_stats[region]['distances'].append(rounds_data[i]['distance'])
+        except Exception as e:
+            print(f"Reverse geocoding error for regions: {e}")
+
+    # Calculate average distance per region and sort by difficulty
+    region_list = []
+    for region, stats in region_stats.items():
+        avg_dist = stats['total_distance'] / stats['rounds'] if stats['rounds'] > 0 else 0
+        region_list.append({
+            'region': region,
+            'rounds': stats['rounds'],
+            'avg_distance_km': avg_dist / 1000
+        })
+
+    # Sort by avg_distance descending (hardest first)
+    region_list.sort(key=lambda x: x['avg_distance_km'], reverse=True)
+
+    return flask.jsonify({
+        "success": True,
+        "data": {
+            "country_code": country_code,
+            "total_rounds": len(rounds_data),
+            "heatmap_data": heatmap_data,
+            "wrong_guesses": wrong_guesses_list,
+            "distance_distribution": distance_distribution,
+            "region_stats": region_list
         }
     })
 
