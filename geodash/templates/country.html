@@ -42,16 +42,6 @@
         <div class="stats-grid" id="country-stats-grid"></div>
     </section>
 
-    <section id="heatmap-section">
-        <h2>Guess vs Actual Locations</h2>
-        <div class="heatmap-controls">
-            <label><input type="checkbox" id="showActual" checked> <span class="dot actual-dot"></span> Actual Locations</label>
-            <label><input type="checkbox" id="showGuess" checked> <span class="dot guess-dot"></span> Guess Locations</label>
-        </div>
-        <div id="heatmap" style="height: 400px; border-radius: 8px;"></div>
-        <p id="heatmap-note" class="note"></p>
-    </section>
-
     <section id="wrong-guesses-section">
         <h2>Most Common Wrong Guesses</h2>
         <p class="section-desc">Countries you most often guess incorrectly when the actual location is {{ country_code|upper }}</p>
@@ -83,14 +73,9 @@
     </section>
 </div>
 
-<!-- Leaflet CSS -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 {% endblock %}
 
 {% block scripts %}
-<!-- Leaflet JS -->
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
 <script>
 const countryCode = "{{ country_code }}";
 const gameTypeSelect = document.getElementById('gameType');
@@ -98,9 +83,6 @@ const modeSelect = document.getElementById('mode');
 const teammateSelect = document.getElementById('teammate');
 const teammateFilter = document.getElementById('teammate-filter');
 
-let map = null;
-let actualLayer = null;
-let guessLayer = null;
 let detailsData = null;
 
 // Parse URL params and set filter dropdowns
@@ -117,10 +99,6 @@ modeSelect.value = initialMode;
 gameTypeSelect.addEventListener('change', onGameTypeChange);
 modeSelect.addEventListener('change', loadCountryStats);
 teammateSelect.addEventListener('change', loadCountryStats);
-
-// Heatmap toggle controls
-document.getElementById('showActual').addEventListener('change', updateMapLayers);
-document.getElementById('showGuess').addEventListener('change', updateMapLayers);
 
 async function onGameTypeChange() {
     const gameType = gameTypeSelect.value;
@@ -219,7 +197,6 @@ async function loadCountryStats() {
 
         if (detailsJson.success) {
             detailsData = detailsJson.data;
-            renderHeatmap(detailsData.heatmap_data);
             renderWrongGuesses(detailsData.wrong_guesses);
             renderDistanceDistribution(detailsData.distance_distribution);
             renderRegionStats(detailsData.region_stats);
@@ -268,86 +245,6 @@ function renderBasicStats(countryStats) {
             <p>${(countryStats.five_k_rate * 100).toFixed(1)}%</p>
         </div>
     `;
-}
-
-function renderHeatmap(heatmapData) {
-    const mapContainer = document.getElementById('heatmap');
-    const note = document.getElementById('heatmap-note');
-
-    // Check if we have actual coordinates
-    if (heatmapData.actual.length === 0) {
-        note.textContent = 'Note: Actual location coordinates are not available for older games. Re-fetch games to populate this data.';
-    }
-
-    // Initialize map if not already done
-    if (!map) {
-        map = L.map('heatmap').setView([0, 0], 2);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; OpenStreetMap contributors'
-        }).addTo(map);
-    }
-
-    // Clear existing layers
-    if (actualLayer) map.removeLayer(actualLayer);
-    if (guessLayer) map.removeLayer(guessLayer);
-
-    // Create marker layers
-    const actualMarkers = heatmapData.actual.map(p =>
-        L.circleMarker([p.lat, p.lng], {
-            radius: 6,
-            fillColor: '#00cc66',
-            color: '#006633',
-            weight: 1,
-            opacity: 0.8,
-            fillOpacity: 0.6
-        })
-    );
-
-    const guessMarkers = heatmapData.guess.map(p =>
-        L.circleMarker([p.lat, p.lng], {
-            radius: 6,
-            fillColor: '#ff6b6b',
-            color: '#cc0000',
-            weight: 1,
-            opacity: 0.8,
-            fillOpacity: 0.6
-        })
-    );
-
-    actualLayer = L.layerGroup(actualMarkers);
-    guessLayer = L.layerGroup(guessMarkers);
-
-    updateMapLayers();
-
-    // Fit bounds to show all points
-    const allPoints = [...heatmapData.actual, ...heatmapData.guess];
-    if (allPoints.length > 0) {
-        const bounds = L.latLngBounds(allPoints.map(p => [p.lat, p.lng]));
-        map.fitBounds(bounds, { padding: [20, 20] });
-    }
-}
-
-function updateMapLayers() {
-    if (!map) return;
-
-    const showActual = document.getElementById('showActual').checked;
-    const showGuess = document.getElementById('showGuess').checked;
-
-    if (actualLayer) {
-        if (showActual) {
-            actualLayer.addTo(map);
-        } else {
-            map.removeLayer(actualLayer);
-        }
-    }
-
-    if (guessLayer) {
-        if (showGuess) {
-            guessLayer.addTo(map);
-        } else {
-            map.removeLayer(guessLayer);
-        }
-    }
 }
 
 function renderWrongGuesses(wrongGuesses) {
@@ -459,36 +356,6 @@ init();
 </script>
 
 <style>
-/* Heatmap controls */
-.heatmap-controls {
-    display: flex;
-    gap: 1.5rem;
-    margin-bottom: 1rem;
-}
-
-.heatmap-controls label {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    cursor: pointer;
-    color: #ccc;
-}
-
-.dot {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    display: inline-block;
-}
-
-.actual-dot {
-    background: #00cc66;
-}
-
-.guess-dot {
-    background: #ff6b6b;
-}
-
 /* Section description */
 .section-desc {
     color: #888;
@@ -563,21 +430,16 @@ init();
     transition: width 0.3s ease;
 }
 
-/* Leaflet map dark theme adjustments */
-#heatmap {
-    background: #16213e;
-}
-
-.leaflet-container {
-    background: #16213e;
-}
-
 /* Section spacing */
-#heatmap-section,
 #wrong-guesses-section,
 #distance-section,
 #regions-section {
     margin-top: 2rem;
+}
+
+/* Distance section spacing */
+#distance-section .stats-grid {
+    margin-bottom: 1.5rem;
 }
 </style>
 {% endblock %}
