@@ -21,45 +21,137 @@
     <button type="submit" id="fetch-btn">Fetch All Games</button>
 </form>
 
+<div id="progress-container" class="progress-container hidden">
+    <div class="progress-phases">
+        <div class="phase" data-phase="1">
+            <span class="phase-indicator"></span>
+            <span class="phase-name">Fetching Duel tokens</span>
+            <span class="phase-status"></span>
+        </div>
+        <div class="phase" data-phase="2">
+            <span class="phase-indicator"></span>
+            <span class="phase-name">Fetching Duel games</span>
+            <span class="phase-status"></span>
+        </div>
+        <div class="phase" data-phase="3">
+            <span class="phase-indicator"></span>
+            <span class="phase-name">Fetching Team Duel tokens</span>
+            <span class="phase-status"></span>
+        </div>
+        <div class="phase" data-phase="4">
+            <span class="phase-indicator"></span>
+            <span class="phase-name">Fetching Team Duel games</span>
+            <span class="phase-status"></span>
+        </div>
+        <div class="phase" data-phase="5">
+            <span class="phase-indicator"></span>
+            <span class="phase-name">Fetching player usernames</span>
+            <span class="phase-status"></span>
+        </div>
+        <div class="phase" data-phase="6">
+            <span class="phase-indicator"></span>
+            <span class="phase-name">Computing statistics</span>
+            <span class="phase-status"></span>
+        </div>
+    </div>
+</div>
+
 <div id="status"></div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-document.getElementById('fetch-form').addEventListener('submit', async function(e) {
+document.getElementById('fetch-form').addEventListener('submit', function(e) {
     e.preventDefault();
 
     const statusDiv = document.getElementById('status');
+    const progressContainer = document.getElementById('progress-container');
     const btn = document.getElementById('fetch-btn');
 
     const playerId = document.getElementById('playerId').value;
     const ncfa = document.getElementById('ncfa').value;
 
     btn.disabled = true;
-    statusDiv.innerHTML = '<p class="loading">Fetching all games... This may take a while.</p>';
+    statusDiv.innerHTML = '';
+    progressContainer.classList.remove('hidden');
 
-    try {
-        const response = await fetch('/api/v1/fetch-all/', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ playerId, ncfa })
-        });
+    // Reset all phases
+    document.querySelectorAll('.phase').forEach(phase => {
+        phase.classList.remove('in-progress', 'complete');
+        phase.querySelector('.phase-status').textContent = '';
+    });
 
-        const data = await response.json();
+    // Use SSE endpoint
+    const url = `/api/v1/fetch-all-stream/?playerId=${encodeURIComponent(playerId)}&ncfa=${encodeURIComponent(ncfa)}`;
+    const eventSource = new EventSource(url);
 
-        if (data.success) {
-            let msg = `<strong>Fetch complete!</strong><br>`;
-            msg += `Solo Duels: ${data.duels_fetched} new (${data.duels_total} total)<br>`;
-            msg += `Team Duels: ${data.team_duels_fetched} new (${data.team_duels_total} total)`;
-            statusDiv.innerHTML = `<p class="success">${msg}<br><br><a href="/stats/">View Stats</a></p>`;
-        } else {
-            statusDiv.innerHTML = `<p class="error">Error: ${data.error}</p>`;
+    eventSource.addEventListener('phase', function(e) {
+        const data = JSON.parse(e.data);
+        const phaseEl = document.querySelector(`.phase[data-phase="${data.phase}"]`);
+
+        if (phaseEl) {
+            if (data.status === 'in_progress') {
+                phaseEl.classList.add('in-progress');
+                phaseEl.classList.remove('complete');
+                if (data.total !== undefined && data.total > 0) {
+                    phaseEl.querySelector('.phase-status').textContent = `(0/${data.total})`;
+                } else if (data.total === 0) {
+                    phaseEl.querySelector('.phase-status').textContent = `(0 new games)`;
+                }
+            } else if (data.status === 'complete') {
+                phaseEl.classList.remove('in-progress');
+                phaseEl.classList.add('complete');
+
+                let statusText = '';
+                if (data.count !== undefined) {
+                    statusText = `(${data.count} found)`;
+                } else if (data.new !== undefined && data.total !== undefined) {
+                    statusText = `(${data.new} new, ${data.total} total)`;
+                }
+                phaseEl.querySelector('.phase-status').textContent = statusText;
+            }
         }
-    } catch (err) {
-        statusDiv.innerHTML = `<p class="error">Network error: ${err.message}</p>`;
-    }
+    });
 
-    btn.disabled = false;
+    eventSource.addEventListener('progress', function(e) {
+        const data = JSON.parse(e.data);
+        const phaseEl = document.querySelector(`.phase[data-phase="${data.phase}"]`);
+
+        if (phaseEl) {
+            phaseEl.querySelector('.phase-status').textContent = `(${data.current}/${data.total})`;
+        }
+    });
+
+    eventSource.addEventListener('complete', function(e) {
+        const data = JSON.parse(e.data);
+        eventSource.close();
+
+        let msg = `<strong>Fetch complete!</strong><br>`;
+        msg += `Solo Duels: ${data.duels_fetched} new (${data.duels_total} total)<br>`;
+        msg += `Team Duels: ${data.team_duels_fetched} new (${data.team_duels_total} total)`;
+        statusDiv.innerHTML = `<p class="success">${msg}<br><br><a href="/stats/">View Stats</a></p>`;
+        btn.disabled = false;
+    });
+
+    eventSource.addEventListener('error', function(e) {
+        if (e.data) {
+            const data = JSON.parse(e.data);
+            statusDiv.innerHTML = `<p class="error">Error: ${data.error}</p>`;
+        } else {
+            statusDiv.innerHTML = `<p class="error">Connection error. Please try again.</p>`;
+        }
+        eventSource.close();
+        btn.disabled = false;
+    });
+
+    eventSource.onerror = function() {
+        // Only show error if not already closed
+        if (eventSource.readyState !== EventSource.CLOSED) {
+            statusDiv.innerHTML = `<p class="error">Connection lost. Please try again.</p>`;
+            eventSource.close();
+            btn.disabled = false;
+        }
+    };
 });
 </script>
 {% endblock %}

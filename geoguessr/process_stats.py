@@ -236,6 +236,11 @@ def process_games(games, mapsize=14916.862 * 1000):  # mapsize in meters, defaul
                 if len(data["player_scores"][p]) else 0
                 for p in data["player_scores"]
             },
+            # Team-level 5k rate (sum of both players' 5ks / total rounds)
+            "5k_rate": (
+                sum(data["player_5ks"].values()) / data["rounds"]
+                if data["rounds"] else 0
+            ),
 
             # country-level avg score diff
             "avg_score_diff": (

@@ -4,7 +4,10 @@ import flask
 import requests
 import geodash
 from geodash.model import get_db
-from geoguessr.fetch_games import fetch_filtered_tokens, fetch_duels, fetch_team_duels
+from geoguessr.fetch_games import (
+    fetch_filtered_tokens, fetch_duels, fetch_team_duels,
+    fetch_single_duel, fetch_single_team_duel
+)
 from geoguessr.process_stats import process_duels, process_games
 from geoguessr.utils import save_json, load_data as load_json
 
@@ -257,7 +260,7 @@ def get_countries():
                 'rounds': cstats['rounds'],
                 'avg_score': cstats.get('avg_team_score', 0),
                 'avg_distance_km': cstats.get('avg_team_distance_km', 0),
-                'five_k_rate': 0,
+                'five_k_rate': cstats.get('5k_rate', 0),
                 'avg_score_diff': cstats['avg_score_diff'],
                 'hit_rate': cstats['hit_rate'],
                 'win_rate': cstats['win_rate']
@@ -467,6 +470,11 @@ def get_country_details(country_code):
         try:
             geo_results = rg.search(actual_coords)
             for i, result in enumerate(geo_results):
+                # Skip regions that don't belong to the requested country
+                geocoded_country = result.get('cc', '').lower()
+                if geocoded_country != country_code:
+                    continue
+
                 region = result.get('admin1', 'Unknown')
                 if region not in region_stats:
                     region_stats[region] = {'rounds': 0, 'total_distance': 0, 'distances': []}
@@ -623,6 +631,228 @@ def fetch_all():
 
     except Exception as e:
         return flask.jsonify({"success": False, "error": str(e)}), 500
+
+
+def _sse_event(event_type, data):
+    """Format a Server-Sent Event message."""
+    import json
+    return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
+
+
+@geodash.app.route('/api/v1/fetch-all-stream/', methods=['GET'])
+def fetch_all_stream():
+    """Fetch all games with SSE progress updates."""
+    player_id = flask.request.args.get('playerId')
+    ncfa = flask.request.args.get('ncfa')
+
+    if not player_id:
+        return flask.jsonify({"success": False, "error": "playerId is required"}), 400
+    if not ncfa:
+        return flask.jsonify({"success": False, "error": "ncfa is required"}), 400
+
+    def generate():
+        try:
+            # Create authenticated session
+            session = requests.Session()
+            session.cookies.set("_ncfa", ncfa, domain="www.geoguessr.com")
+            session.cookies.set("_ncfa", ncfa, domain="game-server.geoguessr.com")
+
+            with geodash.app.app_context():
+                db = get_db()
+                results = {
+                    "duels": {"new": 0, "total": 0},
+                    "team_duels": {"new": 0, "total": 0}
+                }
+
+                # --- Phase 1: Fetch Duel Tokens ---
+                yield _sse_event("phase", {"phase": 1, "name": "Fetching Duel tokens", "status": "in_progress"})
+
+                duels_game_ids = fetch_filtered_tokens(session, game_type="duels", mode_filter="all")
+                yield _sse_event("phase", {
+                    "phase": 1,
+                    "name": "Fetching Duel tokens",
+                    "status": "complete",
+                    "count": len(duels_game_ids)
+                })
+
+                # --- Phase 2: Fetch Duel Games ---
+                if duels_game_ids:
+                    cur = db.execute(
+                        "SELECT game_id FROM fetched_games WHERE player_id = ? AND game_type = ?",
+                        (player_id, 'duels')
+                    )
+                    existing_ids = {row['game_id'] for row in cur.fetchall()}
+                    new_duels_ids = {
+                        gid: mode for gid, mode in duels_game_ids.items()
+                        if gid not in existing_ids
+                    }
+
+                    total_new = len(new_duels_ids)
+                    yield _sse_event("phase", {
+                        "phase": 2,
+                        "name": "Fetching Duel games",
+                        "status": "in_progress",
+                        "total": total_new,
+                        "current": 0
+                    })
+
+                    new_duels = []
+                    if new_duels_ids:
+                        game_ids_list = list(new_duels_ids.keys())
+                        for i, gid in enumerate(game_ids_list, 1):
+                            is_competitive = new_duels_ids.get(gid, False)
+                            result = fetch_single_duel(session, gid, player_id, is_competitive)
+                            if result:
+                                new_duels.append(result)
+
+                            db.execute(
+                                "INSERT OR IGNORE INTO fetched_games (game_id, player_id, game_type) VALUES (?, ?, ?)",
+                                (gid, player_id, 'duels')
+                            )
+
+                            # Yield progress every game
+                            yield _sse_event("progress", {
+                                "phase": 2,
+                                "current": i,
+                                "total": total_new
+                            })
+
+                            time.sleep(0.075)
+
+                        results["duels"]["new"] = len(new_duels)
+
+                    try:
+                        existing_duels = load_json("data/games.json")
+                    except Exception:
+                        existing_duels = []
+
+                    all_duels = existing_duels + new_duels
+                    save_json("data/games.json", all_duels)
+                    results["duels"]["total"] = len(all_duels)
+
+                yield _sse_event("phase", {
+                    "phase": 2,
+                    "name": "Fetching Duel games",
+                    "status": "complete",
+                    "new": results["duels"]["new"],
+                    "total": results["duels"]["total"]
+                })
+
+                # --- Phase 3: Fetch Team Duel Tokens ---
+                yield _sse_event("phase", {"phase": 3, "name": "Fetching Team Duel tokens", "status": "in_progress"})
+
+                team_game_ids = fetch_filtered_tokens(session, game_type="team", mode_filter="all")
+                yield _sse_event("phase", {
+                    "phase": 3,
+                    "name": "Fetching Team Duel tokens",
+                    "status": "complete",
+                    "count": len(team_game_ids)
+                })
+
+                # --- Phase 4: Fetch Team Duel Games ---
+                if team_game_ids:
+                    cur = db.execute(
+                        "SELECT game_id FROM fetched_games WHERE player_id = ? AND game_type = ?",
+                        (player_id, 'team_duels')
+                    )
+                    existing_ids = {row['game_id'] for row in cur.fetchall()}
+                    new_team_ids = {
+                        gid: mode for gid, mode in team_game_ids.items()
+                        if gid not in existing_ids
+                    }
+
+                    total_new = len(new_team_ids)
+                    yield _sse_event("phase", {
+                        "phase": 4,
+                        "name": "Fetching Team Duel games",
+                        "status": "in_progress",
+                        "total": total_new,
+                        "current": 0
+                    })
+
+                    new_team = []
+                    if new_team_ids:
+                        game_ids_list = list(new_team_ids.keys())
+                        for i, gid in enumerate(game_ids_list, 1):
+                            is_competitive = new_team_ids.get(gid, False)
+                            result = fetch_single_team_duel(session, gid, player_id, is_competitive)
+                            if result:
+                                new_team.append(result)
+
+                            db.execute(
+                                "INSERT OR IGNORE INTO fetched_games (game_id, player_id, game_type) VALUES (?, ?, ?)",
+                                (gid, player_id, 'team_duels')
+                            )
+
+                            # Yield progress every game
+                            yield _sse_event("progress", {
+                                "phase": 4,
+                                "current": i,
+                                "total": total_new
+                            })
+
+                            time.sleep(0.075)
+
+                        results["team_duels"]["new"] = len(new_team)
+
+                    try:
+                        existing_team = load_json("data/team_games.json")
+                    except Exception:
+                        existing_team = []
+
+                    all_team = existing_team + new_team
+                    save_json("data/team_games.json", all_team)
+                    results["team_duels"]["total"] = len(all_team)
+
+                yield _sse_event("phase", {
+                    "phase": 4,
+                    "name": "Fetching Team Duel games",
+                    "status": "complete",
+                    "new": results["team_duels"]["new"],
+                    "total": results["team_duels"]["total"]
+                })
+
+                # --- Phase 5: Fetch usernames ---
+                yield _sse_event("phase", {"phase": 5, "name": "Fetching player usernames", "status": "in_progress"})
+                try:
+                    all_team = load_json("data/team_games.json")
+                    player_ids = set()
+                    for game in all_team:
+                        player_ids.update(game.get('playerStats', {}).keys())
+
+                    for pid in player_ids:
+                        _fetch_username(session, pid)
+                except Exception as e:
+                    print(f"Error fetching usernames: {e}")
+
+                yield _sse_event("phase", {"phase": 5, "name": "Fetching player usernames", "status": "complete"})
+
+                # --- Phase 6: Compute statistics ---
+                yield _sse_event("phase", {"phase": 6, "name": "Computing statistics", "status": "in_progress"})
+                _compute_and_store_all_variations(player_id)
+                yield _sse_event("phase", {"phase": 6, "name": "Computing statistics", "status": "complete"})
+
+                # --- Done ---
+                yield _sse_event("complete", {
+                    "success": True,
+                    "duels_fetched": results["duels"]["new"],
+                    "duels_total": results["duels"]["total"],
+                    "team_duels_fetched": results["team_duels"]["new"],
+                    "team_duels_total": results["team_duels"]["total"]
+                })
+
+        except Exception as e:
+            yield _sse_event("error", {"error": str(e)})
+
+    return flask.Response(
+        generate(),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no'
+        }
+    )
 
 
 def _compute_and_store_all_variations(player_id):
