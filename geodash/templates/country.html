@@ -5,7 +5,7 @@
 {% block content %}
 <h1>Country: <span id="country-name">{{ country_code|upper }}</span></h1>
 
-<a href="{{ url_for('show_stats') }}" class="back-link">&larr; Back to Stats</a>
+<a href="{{ url_for('show_stats') }}" class="back-link" id="back-link">&larr; Back to Stats</a>
 
 <div id="filters">
     <div class="filter-group">
@@ -124,6 +124,10 @@ function updateURLParams() {
     }
     const newUrl = `${window.location.pathname}?${params.toString()}`;
     window.history.replaceState({}, '', newUrl);
+
+    // Update back link to preserve filters
+    const backLink = document.getElementById('back-link');
+    backLink.href = `/stats/?${params.toString()}`;
 }
 
 async function loadTeammates() {

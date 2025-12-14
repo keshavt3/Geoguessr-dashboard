@@ -112,6 +112,12 @@ const teammateFilter = document.getElementById('teammate-filter');
 let allCountriesData = [];
 let mapLoaded = false;
 
+// Parse URL params for initial filter state
+const urlParams = new URLSearchParams(window.location.search);
+const initialGameType = urlParams.get('game_type') || 'duels';
+const initialMode = urlParams.get('mode') || 'all';
+const initialTeammate = urlParams.get('teammate') || '';
+
 // Load the SVG map on page load
 async function loadWorldMap() {
     const container = document.getElementById('map-container');
@@ -248,6 +254,17 @@ async function loadTeammates() {
     }
 }
 
+function updateURLParams() {
+    const params = new URLSearchParams();
+    params.set('game_type', gameTypeSelect.value);
+    params.set('mode', modeSelect.value);
+    if (teammateSelect.value) {
+        params.set('teammate', teammateSelect.value);
+    }
+    const newUrl = `${window.location.pathname}?${params.toString()}`;
+    window.history.replaceState({}, '', newUrl);
+}
+
 async function loadStats() {
     const loading = document.getElementById('loading');
     const noStats = document.getElementById('no-stats');
@@ -256,6 +273,9 @@ async function loadStats() {
     const gameType = gameTypeSelect.value;
     const mode = modeSelect.value;
     const teammate = teammateSelect.value;
+
+    // Update URL to preserve filter state
+    updateURLParams();
 
     loading.style.display = 'block';
     noStats.style.display = 'none';
@@ -380,7 +400,23 @@ function renderCountryTable(tableId, countries) {
     `).join('');
 }
 
-// Load stats on page load
-loadStats();
+// Initialize filters from URL params and load stats
+async function init() {
+    // Set initial filter values from URL
+    gameTypeSelect.value = initialGameType;
+    modeSelect.value = initialMode;
+
+    if (initialGameType === 'team_duels') {
+        teammateFilter.style.display = 'flex';
+        await loadTeammates();
+        if (initialTeammate) {
+            teammateSelect.value = initialTeammate;
+        }
+    }
+
+    loadStats();
+}
+
+init();
 </script>
 {% endblock %}
