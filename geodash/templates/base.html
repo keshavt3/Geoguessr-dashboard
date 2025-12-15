@@ -8,8 +8,10 @@
 </head>
 <body>
     <nav>
+        <a href="{{ url_for('index') }}">Home</a>
         <a href="{{ url_for('show_stats') }}">Stats</a>
-        <a href="{{ url_for('show_fetch') }}">Fetch New</a>
+        <a href="{{ url_for('show_fetch') }}">Fetch Games</a>
+        <a href="{{ url_for('show_about') }}">About</a>
     </nav>
     <main>
         {% block content %}{% endblock %}

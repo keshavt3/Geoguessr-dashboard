@@ -5,8 +5,14 @@ import geodash
 
 @geodash.app.route('/', methods=['GET'])
 def index():
-    """Redirect to stats page."""
-    return flask.redirect(flask.url_for('show_stats'))
+    """Display home page."""
+    return flask.render_template('home.html')
+
+
+@geodash.app.route('/about/', methods=['GET'])
+def show_about():
+    """Display about page."""
+    return flask.render_template('about.html')
 
 
 @geodash.app.route('/fetch/', methods=['GET'])

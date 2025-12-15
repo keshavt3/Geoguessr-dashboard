@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+
+{% block title %}About - GeoGuessr Dashboard{% endblock %}
+
+{% block content %}
+<h1>About GeoGuessr Dashboard</h1>
+
+<section class="about-section">
+    <h2>What is this?</h2>
+    <p>
+        GeoGuessr Dashboard is a statistics tracking tool for GeoGuessr players who want to analyze
+        and improve their gameplay. It fetches your game history directly from GeoGuessr and processes
+        it into detailed, actionable statistics.
+    </p>
+
+    <h3>Supported Game Modes</h3>
+    <ul class="feature-list">
+        <li><strong>Solo Duels (1v1)</strong> - Track your head-to-head performance against other players</li>
+        <li><strong>Team Duels (2v2)</strong> - Analyze your team performance and individual contributions</li>
+    </ul>
+
+    <h3>Features</h3>
+    <ul class="feature-list">
+        <li><strong>Overall Statistics</strong> - Win rates, average scores, total 5Ks, guess times, and merchant stats</li>
+        <li><strong>Country Performance</strong> - See which countries you excel in and which need improvement</li>
+        <li><strong>Interactive World Map</strong> - Visual overview of your performance by country, color-coded by score differential</li>
+        <li><strong>Teammate Analysis</strong> - Filter Team Duel stats by specific teammates to see how you perform together</li>
+        <li><strong>Game Mode Filtering</strong> - View stats for competitive games, casual games, or all games</li>
+        <li><strong>Score Differentials</strong> - Track not just your scores, but how they compare to your opponents</li>
+    </ul>
+
+    <h3>Statistics Explained</h3>
+    <div class="stats-explained">
+        <div class="stat-explain">
+            <strong>Win Rate</strong>
+            <p>Percentage of games won</p>
+        </div>
+        <div class="stat-explain">
+            <strong>5K Rate</strong>
+            <p>Percentage of rounds where you scored a perfect 5,000 points</p>
+        </div>
+        <div class="stat-explain">
+            <strong>Hit Rate</strong>
+            <p>Percentage of rounds where you guessed the correct country</p>
+        </div>
+        <div class="stat-explain">
+            <strong>Score Differential</strong>
+            <p>Average difference between your score and your opponent's score (positive = you scored higher)</p>
+        </div>
+        <div class="stat-explain">
+            <strong>Multi-Merchanted</strong>
+            <p>Games where you lost but still outscored your opponent overall</p>
+        </div>
+        <div class="stat-explain">
+            <strong>Reverse Merchanted</strong>
+            <p>Games where you won but your opponent outscored you overall</p>
+        </div>
+    </div>
+</section>
+
+<section class="about-section">
+    <h2>Instructions</h2>
+
+    <div class="instruction-step">
+        <div class="step-number">1</div>
+        <div class="step-content">
+            <h3>Get Your Player ID</h3>
+            <ol>
+                <li>Navigate to your GeoGuessr profile at <a href="https://www.geoguessr.com/me/profile" target="_blank">https://www.geoguessr.com/me/profile</a></li>
+                <li>Hover over your profile picture at the top of the screen (to the left of your username)</li>
+                <li>You will see "Copy user id" appear when hovering</li>
+                <li>Left click on your profile picture to copy your user ID</li>
+                <li>It will show "Copied user id &#x2705;" to confirm the ID has been copied to your clipboard</li>
+            </ol>
+        </div>
+    </div>
+
+    <div class="instruction-step">
+        <div class="step-number">2</div>
+        <div class="step-content">
+            <h3>Get Your NCFA Cookie</h3>
+            <p>The NCFA cookie is used to authenticate with the GeoGuessr API. To find it:</p>
+            <ol>
+                <li>Log into GeoGuessr in your browser</li>
+                <li>Open Developer Tools (press F12 or right-click and select "Inspect")</li>
+                <li>Go to the <strong>Application</strong> tab (Chrome) or <strong>Storage</strong> tab (Firefox)</li>
+                <li>In the left sidebar, click on <strong>Cookies</strong> and then <strong>https://www.geoguessr.com</strong></li>
+                <li>Find the cookie named <code>_ncfa</code> and copy its value</li>
+            </ol>
+            <p class="note">Note: This cookie expires periodically. If fetching fails, try getting a fresh cookie by redoing the steps listed above.</p>
+        </div>
+    </div>
+
+    <div class="instruction-step">
+        <div class="step-number">3</div>
+        <div class="step-content">
+            <h3>Fetch Your Games</h3>
+            <p>
+                Go to the <a href="{{ url_for('show_fetch') }}">Fetch Games</a> page and enter your Player ID
+                and NCFA cookie. Click "Fetch All Games" to import your game history.
+            </p>
+            <p>
+                The fetcher will retrieve both Solo Duels and Team Duels. This may take a few minutes
+                depending on how many games you have played.
+            </p>
+        </div>
+    </div>
+
+    <div class="instruction-step">
+        <div class="step-number">4</div>
+        <div class="step-content">
+            <h3>View Your Statistics</h3>
+            <p>
+                Once fetching is complete, go to the <a href="{{ url_for('show_stats') }}">Statistics</a> page
+                to explore your performance data.
+            </p>
+            <p>Use the filters at the top to:</p>
+            <ul>
+                <li>Switch between Solo Duels and Team Duels</li>
+                <li>Filter by competitive or casual games</li>
+                <li>Filter Team Duels by specific teammates</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="instruction-step">
+        <div class="step-number">5</div>
+        <div class="step-content">
+            <h3>Explore Country Details</h3>
+            <p>
+                Click on any country in the world map at the bottom of the stats page to see detailed statistics
+                for that specific country, including regional breakdowns where available.
+            </p>
+        </div>
+    </div>
+
+    <div class="instruction-step">
+        <div class="step-number">6</div>
+        <div class="step-content">
+            <h3>Keep Your Stats Updated</h3>
+            <p>
+                Return to the Fetch Games page periodically to import new games. The system tracks
+                which games have already been fetched and will only download new ones.
+            </p>
+        </div>
+    </div>
+</section>
+{% endblock %}
