@@ -4,8 +4,11 @@
 
 {% block content %}
 <div class="home-container">
-    <h1>GeoGuessr Dashboard</h1>
-    <p class="home-subtitle">Track your GeoGuessr performance with detailed statistics and analytics</p>
+    <div class="project-header">
+        <h1>GeoGuessr Dashboard</h1>
+        <p class="project-description">A statistics dashboard for tracking and analyzing your GeoGuessr Duels and Team Duels performance.</p>
+        <p class="project-how-it-works">Fetches your game history from GeoGuessr using your session cookie, then processes and visualizes your stats by country, teammate, and overall performance.</p>
+    </div>
 
     <div class="home-cards">
         <a href="{{ url_for('show_stats') }}" class="home-card">

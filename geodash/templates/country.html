@@ -46,7 +46,6 @@
         <h2>Most Common Wrong Guesses</h2>
         <p class="section-desc">Countries you most often guess incorrectly when the actual location is {{ country_code|upper }}</p>
         <div id="wrong-guesses-chart"></div>
-        <p id="wrong-guesses-note" class="note"></p>
     </section>
 
     <section id="distance-section">
@@ -69,7 +68,6 @@
             </thead>
             <tbody></tbody>
         </table>
-        <p id="regions-note" class="note"></p>
     </section>
 </div>
 
@@ -253,7 +251,6 @@ function renderBasicStats(countryStats) {
 
 function renderWrongGuesses(wrongGuesses) {
     const container = document.getElementById('wrong-guesses-chart');
-    const note = document.getElementById('wrong-guesses-note');
 
     if (wrongGuesses.length === 0) {
         container.innerHTML = '<p>No wrong guesses recorded - you always guess the correct country!</p>';
@@ -315,7 +312,6 @@ function renderDistanceDistribution(distData) {
 
 function renderRegionStats(regionStats) {
     const tbody = document.querySelector('#regions-table tbody');
-    const note = document.getElementById('regions-note');
 
     if (regionStats.length === 0) {
         tbody.innerHTML = '<tr><td colspan="4">No region data available. Re-fetch games to populate this data.</td></tr>';
@@ -365,13 +361,6 @@ init();
     color: #888;
     margin-bottom: 1rem;
     font-size: 0.9rem;
-}
-
-.note {
-    color: #888;
-    font-size: 0.85rem;
-    margin-top: 0.5rem;
-    font-style: italic;
 }
 
 /* Bar charts */

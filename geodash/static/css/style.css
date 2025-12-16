@@ -467,10 +467,26 @@ td {
     padding: 2rem 0;
 }
 
-.home-subtitle {
+/* Project header */
+.project-header {
+    margin-bottom: 2.5rem;
+}
+
+.project-header h1 {
+    margin-bottom: 1rem;
+}
+
+.project-description {
     font-size: 1.2rem;
-    color: #aaa;
-    margin-bottom: 3rem;
+    color: #ccc;
+    margin-bottom: 0.75rem;
+}
+
+.project-how-it-works {
+    font-size: 1rem;
+    color: #888;
+    max-width: 700px;
+    margin: 0 auto;
 }
 
 .home-cards {
