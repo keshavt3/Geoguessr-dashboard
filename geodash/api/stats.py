@@ -219,13 +219,24 @@ def get_countries():
         game_type: 'duels' or 'team_duels' (default: 'duels')
         mode: 'all', 'competitive', or 'casual' (default: 'all')
         teammate: optional player_id to filter team stats by teammate
+        sort: 'score_diff', 'avg_score', 'win_rate', or 'hit_rate' (default: 'score_diff')
     """
     db = get_db()
 
     game_type = flask.request.args.get('game_type', 'duels')
     mode = flask.request.args.get('mode', 'all')
     teammate = flask.request.args.get('teammate', '')
+    sort_by = flask.request.args.get('sort', 'score_diff')
     filter_type = f"{game_type}_{mode}"
+
+    # Map sort parameter to field name
+    sort_field_map = {
+        'score_diff': 'avg_score_diff',
+        'avg_score': 'avg_score',
+        'win_rate': 'win_rate',
+        'hit_rate': 'hit_rate'
+    }
+    sort_field = sort_field_map.get(sort_by, 'avg_score_diff')
 
     # If teammate filter is set, recompute stats from JSON
     if teammate and game_type == 'team_duels':
@@ -266,6 +277,8 @@ def get_countries():
                 'win_rate': cstats['win_rate']
             })
 
+        # Sort countries by the specified field
+        countries.sort(key=lambda c: c.get(sort_field, 0), reverse=True)
         eligible = [c for c in countries if c['rounds'] >= 20]
 
         return flask.jsonify({
@@ -289,13 +302,16 @@ def get_countries():
 
     overall_id = row['id']
 
+    # Fetch all countries and sort in Python (safer than dynamic SQL)
     cur = db.execute(
         """SELECT * FROM country_stats
-           WHERE overall_stats_id = ?
-           ORDER BY avg_score_diff DESC""",
+           WHERE overall_stats_id = ?""",
         (overall_id,)
     )
-    countries = cur.fetchall()
+    countries = [dict(row) for row in cur.fetchall()]
+
+    # Sort by the specified field
+    countries.sort(key=lambda c: c.get(sort_field, 0), reverse=True)
 
     eligible = [c for c in countries if c['rounds'] >= 20]
 

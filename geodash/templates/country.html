@@ -88,6 +88,7 @@ const urlParams = new URLSearchParams(window.location.search);
 const initialGameType = urlParams.get('game_type') || 'duels';
 const initialMode = urlParams.get('mode') || 'all';
 const initialTeammate = urlParams.get('teammate') || '';
+const initialSortBy = urlParams.get('sort') || '';
 
 // Set initial filter values
 gameTypeSelect.value = initialGameType;
@@ -119,6 +120,9 @@ function updateURLParams() {
     params.set('mode', modeSelect.value);
     if (teammateSelect.value) {
         params.set('teammate', teammateSelect.value);
+    }
+    if (initialSortBy) {
+        params.set('sort', initialSortBy);
     }
     const newUrl = `${window.location.pathname}?${params.toString()}`;
     window.history.replaceState({}, '', newUrl);
@@ -217,6 +221,9 @@ function renderBasicStats(countryStats) {
     const scoreDiffClass = countryStats.avg_score_diff >= 0 ? 'success' : 'error';
     const scoreDiffSign = countryStats.avg_score_diff >= 0 ? '+' : '';
 
+    // Compute 5k count from rate and rounds
+    const fiveKCount = Math.round(countryStats.five_k_rate * countryStats.rounds);
+
     grid.innerHTML = `
         <div class="stat-card">
             <h3>Total Rounds</h3>
@@ -245,6 +252,7 @@ function renderBasicStats(countryStats) {
         <div class="stat-card">
             <h3>5K Rate</h3>
             <p>${(countryStats.five_k_rate * 100).toFixed(1)}%</p>
+            <span class="stat-subtext">${fiveKCount} perfect score${fiveKCount !== 1 ? 's' : ''}</span>
         </div>
     `;
 }
@@ -433,6 +441,14 @@ init();
 /* Distance section spacing */
 #distance-section .stats-grid {
     margin-bottom: 1.5rem;
+}
+
+/* Stat card subtext */
+.stat-subtext {
+    display: block;
+    font-size: 0.75rem;
+    color: #888;
+    margin-top: 0.25rem;
 }
 </style>
 {% endblock %}

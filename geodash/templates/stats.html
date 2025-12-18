@@ -27,6 +27,15 @@
             <option value="">All Teammates</option>
         </select>
     </div>
+    <div class="filter-group">
+        <label for="sortBy">Sort Countries By:</label>
+        <select id="sortBy">
+            <option value="score_diff">Score Diff (Recommended)</option>
+            <option value="avg_score">Average Score</option>
+            <option value="win_rate">Win Rate</option>
+            <option value="hit_rate">Hit Rate</option>
+        </select>
+    </div>
 </div>
 
 <div id="loading">Loading stats...</div>
@@ -49,7 +58,7 @@
         <h2>Country Performance</h2>
 
         <div class="country-section">
-            <h3>Top 10 Countries (by Score Diff)</h3>
+            <h3>Top 10 Countries <span id="top-sort-label">(by Score Diff)</span></h3>
             <table id="top-countries">
                 <thead>
                     <tr>
@@ -66,7 +75,7 @@
         </div>
 
         <div class="country-section">
-            <h3>Bottom 10 Countries (by Score Diff)</h3>
+            <h3>Bottom 10 Countries <span id="bottom-sort-label">(by Score Diff)</span></h3>
             <table id="bottom-countries">
                 <thead>
                     <tr>
@@ -85,7 +94,7 @@
 
     <section id="world-map-section">
         <h2>World Map</h2>
-        <p class="map-legend">
+        <p class="map-legend" id="map-legend">
             <span class="legend-item"><span class="legend-color score-3"></span> +200+</span>
             <span class="legend-item"><span class="legend-color score-2"></span> +100 to +200</span>
             <span class="legend-item"><span class="legend-color score-1"></span> 0 to +100</span>
@@ -107,6 +116,43 @@ const gameTypeSelect = document.getElementById('gameType');
 const modeSelect = document.getElementById('mode');
 const teammateSelect = document.getElementById('teammate');
 const teammateFilter = document.getElementById('teammate-filter');
+const sortBySelect = document.getElementById('sortBy');
+
+// Sort option display names
+const sortLabels = {
+    'score_diff': 'Score Diff',
+    'avg_score': 'Avg Score',
+    'win_rate': 'Win Rate',
+    'hit_rate': 'Hit Rate'
+};
+
+// Map metric configurations: field name, thresholds (ascending), and legend labels
+const metricConfigs = {
+    'score_diff': {
+        field: 'avg_score_diff',
+        // Thresholds: values below t[0] get score--3, between t[0]-t[1] get score--2, etc.
+        thresholds: [-200, -100, 0, 100, 200],
+        legend: ['+200+', '+100 to +200', '0 to +100', '-100 to 0', '-200 to -100', '-200-']
+    },
+    'avg_score': {
+        field: 'avg_score',
+        // 5000 is perfect, 0 is worst. Divide into 6 equal sections (~833 each)
+        thresholds: [833, 1667, 2500, 3333, 4167],
+        legend: ['4167+', '3333 to 4167', '2500 to 3333', '1667 to 2500', '833 to 1667', '0 to 833']
+    },
+    'win_rate': {
+        field: 'win_rate',
+        // Stored as 0-1, divide into ~17% sections
+        thresholds: [0.17, 0.33, 0.50, 0.67, 0.83],
+        legend: ['83%+', '67% to 83%', '50% to 67%', '33% to 50%', '17% to 33%', '0% to 17%']
+    },
+    'hit_rate': {
+        field: 'hit_rate',
+        // Stored as 0-1, divide into ~17% sections
+        thresholds: [0.17, 0.33, 0.50, 0.67, 0.83],
+        legend: ['83%+', '67% to 83%', '50% to 67%', '33% to 50%', '17% to 33%', '0% to 17%']
+    }
+};
 
 // Store countries data for map coloring
 let allCountriesData = [];
@@ -117,6 +163,7 @@ const urlParams = new URLSearchParams(window.location.search);
 const initialGameType = urlParams.get('game_type') || 'duels';
 const initialMode = urlParams.get('mode') || 'all';
 const initialTeammate = urlParams.get('teammate') || '';
+const initialSortBy = urlParams.get('sort') || 'score_diff';
 
 // Load the SVG map on page load
 async function loadWorldMap() {
@@ -129,7 +176,7 @@ async function loadWorldMap() {
         mapLoaded = true;
         // Color the map if we already have data
         if (allCountriesData.length > 0) {
-            updateWorldMap(allCountriesData);
+            updateWorldMap(allCountriesData, sortBySelect.value);
         }
     } catch (err) {
         container.innerHTML = '<p class="error">Could not load map</p>';
@@ -137,8 +184,39 @@ async function loadWorldMap() {
     }
 }
 
-function updateWorldMap(countries) {
+function updateMapLegend(sortBy) {
+    const config = metricConfigs[sortBy] || metricConfigs['score_diff'];
+    const legendEl = document.getElementById('map-legend');
+
+    legendEl.innerHTML = `
+        <span class="legend-item"><span class="legend-color score-3"></span> ${config.legend[0]}</span>
+        <span class="legend-item"><span class="legend-color score-2"></span> ${config.legend[1]}</span>
+        <span class="legend-item"><span class="legend-color score-1"></span> ${config.legend[2]}</span>
+        <span class="legend-item"><span class="legend-color score--1"></span> ${config.legend[3]}</span>
+        <span class="legend-item"><span class="legend-color score--2"></span> ${config.legend[4]}</span>
+        <span class="legend-item"><span class="legend-color score--3"></span> ${config.legend[5]}</span>
+        <span class="legend-item"><span class="legend-color unplayed"></span> No Data</span>
+    `;
+}
+
+function getColorClass(value, thresholds) {
+    // thresholds is an array of 5 values in ascending order
+    // Returns score class based on which bucket the value falls into
+    if (value >= thresholds[4]) return 'score-3';      // Dark green (best)
+    if (value >= thresholds[3]) return 'score-2';      // Medium green
+    if (value >= thresholds[2]) return 'score-1';      // Light green
+    if (value >= thresholds[1]) return 'score--1';     // Yellow/Gold
+    if (value >= thresholds[0]) return 'score--2';     // Orange
+    return 'score--3';                                  // Red (worst)
+}
+
+function updateWorldMap(countries, sortBy) {
     if (!mapLoaded) return;
+
+    const config = metricConfigs[sortBy] || metricConfigs['score_diff'];
+
+    // Update the legend to match the metric
+    updateMapLegend(sortBy);
 
     // Build lookup by country code (lowercase)
     const countryLookup = {};
@@ -170,21 +248,10 @@ function updateWorldMap(countries) {
             if (stats && stats.rounds > 0) {
                 path.classList.add('played');
 
-                // Color based on avg_score_diff (6-tier gradient)
-                const diff = stats.avg_score_diff;
-                if (diff >= 200) {
-                    path.classList.add('score-3');      // Dark green
-                } else if (diff >= 100) {
-                    path.classList.add('score-2');      // Medium green
-                } else if (diff >= 0) {
-                    path.classList.add('score-1');      // Light green
-                } else if (diff >= -100) {
-                    path.classList.add('score--1');     // Yellow/Gold
-                } else if (diff >= -200) {
-                    path.classList.add('score--2');     // Orange
-                } else {
-                    path.classList.add('score--3');     // Red
-                }
+                // Get the value for the current metric and determine color class
+                const value = stats[config.field] || 0;
+                const colorClass = getColorClass(value, config.thresholds);
+                path.classList.add(colorClass);
 
                 // Add click handler
                 path.onclick = (e) => {
@@ -203,10 +270,14 @@ function navigateToCountry(countryCode) {
     const gameType = gameTypeSelect.value;
     const mode = modeSelect.value;
     const teammate = teammateSelect.value;
+    const sortBy = sortBySelect.value;
 
     let url = `/countries/${countryCode}/?game_type=${gameType}&mode=${mode}`;
     if (teammate) {
         url += `&teammate=${teammate}`;
+    }
+    if (sortBy !== 'score_diff') {
+        url += `&sort=${sortBy}`;
     }
     window.location.href = url;
 }
@@ -218,6 +289,7 @@ loadWorldMap();
 gameTypeSelect.addEventListener('change', onGameTypeChange);
 modeSelect.addEventListener('change', loadStats);
 teammateSelect.addEventListener('change', loadStats);
+sortBySelect.addEventListener('change', loadStats);
 
 async function onGameTypeChange() {
     const gameType = gameTypeSelect.value;
@@ -261,8 +333,17 @@ function updateURLParams() {
     if (teammateSelect.value) {
         params.set('teammate', teammateSelect.value);
     }
+    if (sortBySelect.value !== 'score_diff') {
+        params.set('sort', sortBySelect.value);
+    }
     const newUrl = `${window.location.pathname}?${params.toString()}`;
     window.history.replaceState({}, '', newUrl);
+}
+
+function updateSortLabels() {
+    const sortLabel = sortLabels[sortBySelect.value];
+    document.getElementById('top-sort-label').textContent = `(by ${sortLabel})`;
+    document.getElementById('bottom-sort-label').textContent = `(by ${sortLabel})`;
 }
 
 async function loadStats() {
@@ -273,9 +354,11 @@ async function loadStats() {
     const gameType = gameTypeSelect.value;
     const mode = modeSelect.value;
     const teammate = teammateSelect.value;
+    const sortBy = sortBySelect.value;
 
     // Update URL to preserve filter state
     updateURLParams();
+    updateSortLabels();
 
     loading.style.display = 'block';
     noStats.style.display = 'none';
@@ -286,6 +369,9 @@ async function loadStats() {
         let queryParams = `game_type=${gameType}&mode=${mode}`;
         if (teammate) {
             queryParams += `&teammate=${teammate}`;
+        }
+        if (sortBy !== 'score_diff') {
+            queryParams += `&sort=${sortBy}`;
         }
 
         // Fetch overall stats with filters
@@ -371,7 +457,7 @@ async function loadStats() {
 
             // Store all countries data and update the map
             allCountriesData = countriesData.data.all_countries || [];
-            updateWorldMap(allCountriesData);
+            updateWorldMap(allCountriesData, sortBy);
         }
 
         loading.style.display = 'none';
@@ -405,6 +491,7 @@ async function init() {
     // Set initial filter values from URL
     gameTypeSelect.value = initialGameType;
     modeSelect.value = initialMode;
+    sortBySelect.value = initialSortBy;
 
     if (initialGameType === 'team_duels') {
         teammateFilter.style.display = 'flex';
