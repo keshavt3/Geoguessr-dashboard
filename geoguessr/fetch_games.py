@@ -1,7 +1,23 @@
 import time
 import json
 import requests
+import reverse_geocoder as rg
 from .utils import calculate_score, parse_time, save_json
+
+
+def get_country_from_coords(lat, lng):
+    """Fallback to reverse geocoding when API doesn't provide country code.
+
+    This handles cases where locations near coastlines have blank country codes.
+    Returns None if coordinates are invalid or geocoding fails.
+    """
+    if lat is None or lng is None:
+        return None
+    try:
+        result = rg.search((lat, lng))[0]
+        return result['cc']
+    except Exception:
+        return None
 
 BASE_FEED_URL = "https://www.geoguessr.com/api/v4/feed/private"
 BASE_DUEL_URL = "https://game-server.geoguessr.com/api/duels/"
@@ -127,12 +143,16 @@ def fetch_single_team_duel(session, game_id, my_id, is_competitive=False, teamma
                 p_stats["score"] += guess["score"]
 
                 panorama = round_info.get("panorama", {})
+                country = panorama.get("countryCode")
+                # Fallback to reverse geocoding for coastal locations with blank country
+                if not country:
+                    country = get_country_from_coords(panorama.get("lat"), panorama.get("lng"))
                 p_stats["rounds"].append({
                     "roundNumber": guess["roundNumber"],
                     "distance": guess["distance"],
                     "score": guess["score"],
                     "time": round_time,
-                    "country": panorama.get("countryCode"),
+                    "country": country,
                     "lat": guess["lat"],
                     "lng": guess["lng"],
                     "actualLat": panorama.get("lat"),
@@ -142,7 +162,6 @@ def fetch_single_team_duel(session, game_id, my_id, is_competitive=False, teamma
                 r = rounds_map.setdefault(guess["roundNumber"], {"totalDistance": 0, "totalScore": 0, "totalHealthChange": 0, "countries": set()})
                 r["totalDistance"] += guess["distance"]
                 r["totalScore"] += guess["score"]
-                country = round_info.get("panorama", {}).get("countryCode")
                 if country:
                     r["countries"].add(country)
 
@@ -282,14 +301,18 @@ def fetch_single_duel(session, game_id, my_id, is_competitive=False):
             r = rounds_map.setdefault(guess["roundNumber"], {"myScore": 0, "enemyScore": 0, "totalHealthChange": 0, "country": None})
             panorama = round_info.get("panorama", {})
             r["myScore"] = guess["score"]
-            r["country"] = panorama.get("countryCode")
+            country = panorama.get("countryCode")
+            # Fallback to reverse geocoding for coastal locations with blank country
+            if not country:
+                country = get_country_from_coords(panorama.get("lat"), panorama.get("lng"))
+            r["country"] = country
 
             my_stats["rounds"].append({
                 "roundNumber": guess["roundNumber"],
                 "distance": guess["distance"],
                 "score": guess["score"],
                 "time": round_time,
-                "country": r["country"],
+                "country": country,
                 "lat": guess["lat"],
                 "lng": guess["lng"],
                 "actualLat": panorama.get("lat"),

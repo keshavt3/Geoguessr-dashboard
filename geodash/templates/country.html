@@ -55,15 +55,26 @@
     </section>
 
     <section id="regions-section">
-        <h2>Hardest Regions</h2>
-        <p class="section-desc">Regions within {{ country_code|upper }} ranked by average guess error (hardest first)</p>
+        <h2>Region Performance</h2>
+        <div class="region-controls">
+            <label for="regionSortBy">Sort By:</label>
+            <select id="regionSortBy">
+                <option value="score_diff">Score Diff (Recommended)</option>
+                <option value="avg_score">Average Score</option>
+                <option value="win_rate">Win Rate</option>
+                <option value="hit_rate">Hit Rate</option>
+            </select>
+        </div>
+        <p class="section-desc" id="regions-desc">Regions within {{ country_code|upper }} ranked by score differential</p>
         <table id="regions-table">
             <thead>
                 <tr>
                     <th>Region</th>
                     <th>Rounds</th>
-                    <th>Avg Distance</th>
-                    <th>Difficulty</th>
+                    <th>Avg Score</th>
+                    <th>Score Diff</th>
+                    <th>Win Rate</th>
+                    <th>Hit Rate</th>
                 </tr>
             </thead>
             <tbody></tbody>
@@ -80,8 +91,10 @@ const gameTypeSelect = document.getElementById('gameType');
 const modeSelect = document.getElementById('mode');
 const teammateSelect = document.getElementById('teammate');
 const teammateFilter = document.getElementById('teammate-filter');
+const regionSortBySelect = document.getElementById('regionSortBy');
 
 let detailsData = null;
+let regionStatsData = null;
 
 // Parse URL params and set filter dropdowns
 const urlParams = new URLSearchParams(window.location.search);
@@ -203,9 +216,10 @@ async function loadCountryStats() {
 
         if (detailsJson.success) {
             detailsData = detailsJson.data;
+            regionStatsData = detailsData.region_stats;
             renderWrongGuesses(detailsData.wrong_guesses);
             renderDistanceDistribution(detailsData.distance_distribution);
-            renderRegionStats(detailsData.region_stats);
+            renderRegionStats(regionStatsData, regionSortBySelect.value);
         }
 
         loading.style.display = 'none';
@@ -318,35 +332,62 @@ function renderDistanceDistribution(distData) {
     `).join('');
 }
 
-function renderRegionStats(regionStats) {
+function renderRegionStats(regionStats, sortBy = 'score_diff') {
     const tbody = document.querySelector('#regions-table tbody');
+    const desc = document.getElementById('regions-desc');
 
     if (regionStats.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4">No region data available. Re-fetch games to populate this data.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6">No region data available. Re-fetch games to populate this data.</td></tr>';
         return;
     }
 
-    // Find max distance for difficulty bar scaling
-    const maxDist = Math.max(...regionStats.map(r => r.avg_distance_km));
+    // Sort descriptions
+    const sortDescriptions = {
+        'score_diff': 'ranked by score differential (best first)',
+        'avg_score': 'ranked by average score (best first)',
+        'win_rate': 'ranked by win rate (best first)',
+        'hit_rate': 'ranked by hit rate (best first)'
+    };
+    desc.textContent = `Regions within ${countryCode.toUpperCase()} ${sortDescriptions[sortBy] || sortDescriptions['score_diff']}`;
 
-    tbody.innerHTML = regionStats.map(r => {
-        const diffPercent = maxDist > 0 ? (r.avg_distance_km / maxDist) * 100 : 0;
-        const diffColor = diffPercent > 66 ? '#cc3333' : diffPercent > 33 ? '#e67e22' : '#00cc66';
+    // Sort the data based on selected metric (descending = best first)
+    const sorted = [...regionStats].sort((a, b) => {
+        switch (sortBy) {
+            case 'avg_score':
+                return b.avg_score - a.avg_score;
+            case 'win_rate':
+                return b.win_rate - a.win_rate;
+            case 'hit_rate':
+                return b.hit_rate - a.hit_rate;
+            case 'score_diff':
+            default:
+                return b.avg_score_diff - a.avg_score_diff;
+        }
+    });
+
+    tbody.innerHTML = sorted.map(r => {
+        const scoreDiffClass = r.avg_score_diff >= 0 ? 'success' : 'error';
+        const scoreDiffSign = r.avg_score_diff >= 0 ? '+' : '';
 
         return `
             <tr>
                 <td>${r.region}</td>
                 <td>${r.rounds}</td>
-                <td>${r.avg_distance_km.toFixed(1)} km</td>
-                <td>
-                    <div class="difficulty-bar-container">
-                        <div class="difficulty-bar" style="width: ${diffPercent}%; background: ${diffColor};"></div>
-                    </div>
-                </td>
+                <td>${r.avg_score.toFixed(0)}</td>
+                <td class="${scoreDiffClass}">${scoreDiffSign}${r.avg_score_diff.toFixed(0)}</td>
+                <td>${(r.win_rate * 100).toFixed(1)}%</td>
+                <td>${(r.hit_rate * 100).toFixed(1)}%</td>
             </tr>
         `;
     }).join('');
 }
+
+// Handle region sort changes
+regionSortBySelect.addEventListener('change', () => {
+    if (regionStatsData) {
+        renderRegionStats(regionStatsData, regionSortBySelect.value);
+    }
+});
 
 // Initialize on page load
 async function init() {
@@ -368,6 +409,28 @@ init();
 .section-desc {
     color: #888;
     margin-bottom: 1rem;
+    font-size: 0.9rem;
+}
+
+/* Region controls */
+.region-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.region-controls label {
+    color: #aaa;
+    font-size: 0.9rem;
+}
+
+.region-controls select {
+    padding: 0.4rem 0.75rem;
+    border-radius: 4px;
+    border: 1px solid #333;
+    background: #16213e;
+    color: #fff;
     font-size: 0.9rem;
 }
 

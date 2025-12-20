@@ -370,22 +370,42 @@ def get_country_details(country_code):
     rounds_data = []
 
     for game in games:
+        # Build a lookup for round stats (enemy scores)
+        round_stats_lookup = {}
+        for rs in game.get('roundStats', []):
+            rn = rs.get('roundNumber')
+            if game_type == 'team_duels':
+                round_stats_lookup[rn] = rs.get('enemyBestScore', 0)
+            else:
+                round_stats_lookup[rn] = rs.get('enemyScore', 0)
+
         if game_type == 'team_duels':
+            # For team duels, find the best score per round across players
+            best_scores_per_round = {}
             for player_id, player_stats in game.get('playerStats', {}).items():
                 for round_data in player_stats.get('rounds', []):
-                    if round_data.get('country', '').lower() == country_code:
-                        rounds_data.append({
+                    rn = round_data.get('roundNumber')
+                    score = round_data.get('score', 0)
+                    if rn not in best_scores_per_round or score > best_scores_per_round[rn]['score']:
+                        best_scores_per_round[rn] = {
                             'distance': round_data.get('distance', 0),
-                            'score': round_data.get('score', 0),
+                            'score': score,
                             'guessLat': round_data.get('lat'),
                             'guessLng': round_data.get('lng'),
                             'actualLat': round_data.get('actualLat'),
                             'actualLng': round_data.get('actualLng'),
-                            'time': round_data.get('time')
-                        })
+                            'time': round_data.get('time'),
+                            'country': round_data.get('country', ''),
+                            'enemyScore': round_stats_lookup.get(rn, 0)
+                        }
+            # Add rounds matching this country
+            for rn, rd in best_scores_per_round.items():
+                if rd['country'].lower() == country_code:
+                    rounds_data.append(rd)
         else:
             for round_data in game.get('playerStats', {}).get('rounds', []):
                 if round_data.get('country', '').lower() == country_code:
+                    rn = round_data.get('roundNumber')
                     rounds_data.append({
                         'distance': round_data.get('distance', 0),
                         'score': round_data.get('score', 0),
@@ -393,7 +413,8 @@ def get_country_details(country_code):
                         'guessLng': round_data.get('lng'),
                         'actualLat': round_data.get('actualLat'),
                         'actualLng': round_data.get('actualLng'),
-                        'time': round_data.get('time')
+                        'time': round_data.get('time'),
+                        'enemyScore': round_stats_lookup.get(rn, 0)
                     })
 
     if not rounds_data:
@@ -479,39 +500,102 @@ def get_country_details(country_code):
 
     # 4. Region stats - reverse geocode actual locations to get regions
     region_stats = {}
-    actual_coords = [(r['actualLat'], r['actualLng']) for r in rounds_data
-                     if r['actualLat'] is not None and r['actualLng'] is not None]
+
+    # Filter rounds with valid coordinates
+    valid_rounds = [r for r in rounds_data
+                    if r['actualLat'] is not None and r['actualLng'] is not None]
+    actual_coords = [(r['actualLat'], r['actualLng']) for r in valid_rounds]
+
+    # Also get guess coordinates for hit rate calculation
+    guess_coords_for_regions = [(r.get('guessLat'), r.get('guessLng')) for r in valid_rounds]
 
     if actual_coords:
         try:
             geo_results = rg.search(actual_coords)
+
+            # Batch geocode guess coordinates for hit rate
+            guess_countries = []
+            valid_guess_coords = [(lat, lng) for lat, lng in guess_coords_for_regions
+                                  if lat is not None and lng is not None]
+            if valid_guess_coords:
+                guess_geo_results = rg.search(valid_guess_coords)
+                guess_idx = 0
+                for lat, lng in guess_coords_for_regions:
+                    if lat is not None and lng is not None:
+                        guess_countries.append(guess_geo_results[guess_idx]['cc'].lower())
+                        guess_idx += 1
+                    else:
+                        guess_countries.append(None)
+            else:
+                guess_countries = [None] * len(valid_rounds)
+
             for i, result in enumerate(geo_results):
                 # Skip regions that don't belong to the requested country
                 geocoded_country = result.get('cc', '').lower()
                 if geocoded_country != country_code:
                     continue
 
-                region = result.get('admin1', 'Unknown')
+                region = result.get('admin1', '') or ''
+                # Skip locations where we can't determine the region
+                if not region.strip():
+                    continue
+
                 if region not in region_stats:
-                    region_stats[region] = {'rounds': 0, 'total_distance': 0, 'distances': []}
-                region_stats[region]['rounds'] += 1
-                region_stats[region]['total_distance'] += rounds_data[i]['distance']
-                region_stats[region]['distances'].append(rounds_data[i]['distance'])
+                    region_stats[region] = {
+                        'rounds': 0,
+                        'total_score': 0,
+                        'total_distance': 0,
+                        'score_diffs': [],
+                        'wins': 0,
+                        'correct_guesses': 0,
+                        'total_guesses': 0
+                    }
+
+                rd = valid_rounds[i]
+                stats = region_stats[region]
+                stats['rounds'] += 1
+                stats['total_score'] += rd['score']
+                stats['total_distance'] += rd['distance']
+
+                # Score diff and win rate
+                enemy_score = rd.get('enemyScore', 0)
+                score_diff = rd['score'] - enemy_score
+                stats['score_diffs'].append(score_diff)
+                if score_diff > 0:
+                    stats['wins'] += 1
+
+                # Hit rate - did we guess the correct country?
+                guessed_country = guess_countries[i]
+                if guessed_country is not None:
+                    stats['total_guesses'] += 1
+                    if guessed_country == country_code:
+                        stats['correct_guesses'] += 1
+
         except Exception as e:
             print(f"Reverse geocoding error for regions: {e}")
 
-    # Calculate average distance per region and sort by difficulty
+    # Calculate metrics per region
     region_list = []
     for region, stats in region_stats.items():
-        avg_dist = stats['total_distance'] / stats['rounds'] if stats['rounds'] > 0 else 0
+        rounds_count = stats['rounds']
+        avg_score = stats['total_score'] / rounds_count if rounds_count > 0 else 0
+        avg_distance = stats['total_distance'] / rounds_count if rounds_count > 0 else 0
+        avg_score_diff = sum(stats['score_diffs']) / len(stats['score_diffs']) if stats['score_diffs'] else 0
+        win_rate = stats['wins'] / rounds_count if rounds_count > 0 else 0
+        hit_rate = stats['correct_guesses'] / stats['total_guesses'] if stats['total_guesses'] > 0 else 0
+
         region_list.append({
             'region': region,
-            'rounds': stats['rounds'],
-            'avg_distance_km': avg_dist / 1000
+            'rounds': rounds_count,
+            'avg_score': avg_score,
+            'avg_distance_km': avg_distance / 1000,
+            'avg_score_diff': avg_score_diff,
+            'win_rate': win_rate,
+            'hit_rate': hit_rate
         })
 
-    # Sort by avg_distance descending (hardest first)
-    region_list.sort(key=lambda x: x['avg_distance_km'], reverse=True)
+    # Sort by score_diff descending (best first)
+    region_list.sort(key=lambda x: x['avg_score_diff'], reverse=True)
 
     return flask.jsonify({
         "success": True,
