@@ -5,6 +5,16 @@ import reverse_geocoder as rg
 from .utils import calculate_score, parse_time, save_json
 
 
+class AuthenticationError(Exception):
+    """Raised when authentication with GeoGuessr API fails."""
+    pass
+
+
+class InvalidPlayerIdError(Exception):
+    """Raised when the provided player ID is not found in fetched games."""
+    pass
+
+
 def get_country_from_coords(lat, lng):
     """Fallback to reverse geocoding when API doesn't provide country code.
 
@@ -40,9 +50,10 @@ def fetch_filtered_tokens(session, game_type="team", mode_filter="all"):
 
         resp = session.get(url)
 
+        if resp.status_code == 401 or resp.status_code == 403:
+            raise AuthenticationError("Invalid _ncfa token. Please check your cookie and try again.")
         if resp.status_code != 200:
-            print("Auth failed or other error:", resp.status_code)
-            break
+            raise AuthenticationError(f"API request failed with status {resp.status_code}")
 
         data = resp.json()
         if not data.get("entries"):
@@ -112,7 +123,10 @@ def fetch_single_team_duel(session, game_id, my_id, is_competitive=False, teamma
         # Find my team and enemy team
         my_team = next((t for t in game["teams"] if any(p["playerId"] == my_id for p in t["players"])), None)
         if not my_team:
-            return None
+            raise InvalidPlayerIdError(
+                "Invalid Player ID. The provided player ID does not match your account. "
+                "Please check your player ID and try again."
+            )
         enemy_team = next((t for t in game["teams"] if t["id"] != my_team["id"]), None)
 
         if teammate_id and not any(p["playerId"] == teammate_id for p in my_team["players"]):
@@ -205,6 +219,8 @@ def fetch_single_team_duel(session, game_id, my_id, is_competitive=False, teamma
             "playerStats": player_stats,
             "roundStats": round_stats
         }
+    except InvalidPlayerIdError:
+        raise  # Re-raise to propagate to caller
     except Exception as e:
         print("Error fetching game", game_id, e)
         return None
@@ -274,8 +290,10 @@ def fetch_single_duel(session, game_id, my_id, is_competitive=False):
                     enemy_player = player
 
         if not my_player or not enemy_player:
-            print(f"Skipping game {game_id}: player not found in game")
-            return None
+            raise InvalidPlayerIdError(
+                "Invalid Player ID. The provided player ID does not match your account. "
+                "Please check your player ID and try again."
+            )
 
         # Prepare per-round stats
         rounds_map = {}
@@ -345,6 +363,8 @@ def fetch_single_duel(session, game_id, my_id, is_competitive=False):
             "playerStats": my_stats,
             "roundStats": round_stats
         }
+    except InvalidPlayerIdError:
+        raise  # Re-raise to propagate to caller
     except Exception as e:
         print("Error fetching game", game_id, e)
         return None

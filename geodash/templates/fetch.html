@@ -57,10 +57,59 @@
 </div>
 
 <div id="status"></div>
+
+<!-- Error Alert Modal -->
+<div id="error-overlay" class="error-overlay hidden">
+    <div class="error-alert">
+        <div class="error-alert-header">
+            <div class="error-alert-icon"></div>
+            <h3>Error</h3>
+        </div>
+        <p id="error-message" class="error-alert-message"></p>
+        <button id="error-close" class="error-alert-close">Dismiss</button>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+// Error modal functions
+const errorOverlay = document.getElementById('error-overlay');
+const errorMessage = document.getElementById('error-message');
+const errorClose = document.getElementById('error-close');
+
+function showError(message) {
+    errorMessage.textContent = message;
+    errorOverlay.classList.remove('hidden');
+}
+
+function hideError() {
+    errorOverlay.classList.add('hidden');
+}
+
+function resetAllPhases() {
+    document.querySelectorAll('.phase').forEach(phase => {
+        phase.classList.remove('in-progress', 'complete', 'error');
+        phase.querySelector('.phase-status').textContent = '';
+    });
+}
+
+function markCurrentPhaseAsError() {
+    // Find any in-progress phase and mark it as error
+    document.querySelectorAll('.phase.in-progress').forEach(phase => {
+        phase.classList.remove('in-progress');
+        phase.classList.add('error');
+        phase.querySelector('.phase-status').textContent = '(failed)';
+    });
+}
+
+errorClose.addEventListener('click', hideError);
+errorOverlay.addEventListener('click', function(e) {
+    if (e.target === errorOverlay) {
+        hideError();
+    }
+});
+
 document.getElementById('fetch-form').addEventListener('submit', function(e) {
     e.preventDefault();
 
@@ -76,10 +125,7 @@ document.getElementById('fetch-form').addEventListener('submit', function(e) {
     progressContainer.classList.remove('hidden');
 
     // Reset all phases
-    document.querySelectorAll('.phase').forEach(phase => {
-        phase.classList.remove('in-progress', 'complete');
-        phase.querySelector('.phase-status').textContent = '';
-    });
+    resetAllPhases();
 
     // Use SSE endpoint
     const url = `/api/v1/fetch-all-stream/?playerId=${encodeURIComponent(playerId)}&ncfa=${encodeURIComponent(ncfa)}`;
@@ -134,22 +180,25 @@ document.getElementById('fetch-form').addEventListener('submit', function(e) {
     });
 
     eventSource.addEventListener('error', function(e) {
-        if (e.data) {
-            const data = JSON.parse(e.data);
-            statusDiv.innerHTML = `<p class="error">Error: ${data.error}</p>`;
-        } else {
-            statusDiv.innerHTML = `<p class="error">Connection error. Please try again.</p>`;
-        }
+        markCurrentPhaseAsError();
         eventSource.close();
         btn.disabled = false;
+
+        if (e.data) {
+            const data = JSON.parse(e.data);
+            showError(data.error);
+        } else {
+            showError('Connection error. Please try again.');
+        }
     });
 
     eventSource.onerror = function() {
         // Only show error if not already closed
         if (eventSource.readyState !== EventSource.CLOSED) {
-            statusDiv.innerHTML = `<p class="error">Connection lost. Please try again.</p>`;
+            markCurrentPhaseAsError();
             eventSource.close();
             btn.disabled = false;
+            showError('Connection lost. Please try again.');
         }
     };
 });

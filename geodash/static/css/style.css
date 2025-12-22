@@ -867,3 +867,128 @@ td {
     color: var(--color-warning) !important;
     font-size: 0.9rem;
 }
+
+/* Error Alert Modal */
+.error-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    backdrop-filter: blur(4px);
+    animation: fadeIn 0.2s ease;
+}
+
+.error-overlay.hidden {
+    display: none;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.error-alert {
+    background: var(--color-bg-card);
+    border: 2px solid var(--color-error);
+    border-radius: var(--radius-lg);
+    padding: var(--space-xl);
+    max-width: 500px;
+    width: 90%;
+    box-shadow: 0 0 40px rgba(239, 68, 68, 0.3);
+    animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateY(-20px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.error-alert-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+    color: var(--color-error);
+}
+
+.error-alert-icon {
+    width: 48px;
+    height: 48px;
+    background: rgba(239, 68, 68, 0.15);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.error-alert-icon::before {
+    content: '!';
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--color-error);
+}
+
+.error-alert-header h3 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--color-error);
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+.error-alert-message {
+    color: var(--color-text-secondary);
+    line-height: 1.7;
+    margin-bottom: var(--space-xl);
+    font-size: 0.95rem;
+}
+
+.error-alert-close {
+    width: 100%;
+    background: var(--color-error);
+    color: white;
+    border: none;
+    padding: var(--space-md) var(--space-lg);
+    border-radius: var(--radius-sm);
+    font-weight: 600;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background 0.2s ease, transform 0.15s ease;
+    margin-top: 0;
+}
+
+.error-alert-close:hover {
+    background: #dc2626;
+    transform: none;
+    box-shadow: none;
+}
+
+.error-alert-close:active {
+    transform: scale(0.98);
+}
+
+/* Error state for phases */
+.phase.error {
+    color: var(--color-error);
+}
+
+.phase.error .phase-indicator::after {
+    content: '×';
+    font-size: 1rem;
+    font-weight: 700;
+    animation: none;
+}

@@ -6,7 +6,8 @@ import geodash
 from geodash.model import get_db
 from geoguessr.fetch_games import (
     fetch_filtered_tokens, fetch_duels, fetch_team_duels,
-    fetch_single_duel, fetch_single_team_duel
+    fetch_single_duel, fetch_single_team_duel,
+    AuthenticationError, InvalidPlayerIdError
 )
 from geoguessr.process_stats import process_duels, process_games
 from geoguessr.utils import save_json, load_data as load_json
@@ -513,8 +514,8 @@ def get_country_details(country_code):
         try:
             geo_results = rg.search(actual_coords)
 
-            # Batch geocode guess coordinates for hit rate
-            guess_countries = []
+            # Batch geocode guess coordinates for hit rate (region-level)
+            guess_regions = []
             valid_guess_coords = [(lat, lng) for lat, lng in guess_coords_for_regions
                                   if lat is not None and lng is not None]
             if valid_guess_coords:
@@ -522,12 +523,15 @@ def get_country_details(country_code):
                 guess_idx = 0
                 for lat, lng in guess_coords_for_regions:
                     if lat is not None and lng is not None:
-                        guess_countries.append(guess_geo_results[guess_idx]['cc'].lower())
+                        guess_regions.append({
+                            'country': guess_geo_results[guess_idx]['cc'].lower(),
+                            'region': guess_geo_results[guess_idx].get('admin1', '') or ''
+                        })
                         guess_idx += 1
                     else:
-                        guess_countries.append(None)
+                        guess_regions.append(None)
             else:
-                guess_countries = [None] * len(valid_rounds)
+                guess_regions = [None] * len(valid_rounds)
 
             for i, result in enumerate(geo_results):
                 # Skip regions that don't belong to the requested country
@@ -564,11 +568,13 @@ def get_country_details(country_code):
                 if score_diff > 0:
                     stats['wins'] += 1
 
-                # Hit rate - did we guess the correct country?
-                guessed_country = guess_countries[i]
-                if guessed_country is not None:
+                # Hit rate - did we guess the correct region?
+                guess_info = guess_regions[i]
+                if guess_info is not None:
                     stats['total_guesses'] += 1
-                    if guessed_country == country_code:
+                    # Check if guessed region matches actual region
+                    if (guess_info['country'] == country_code and
+                            guess_info['region'] == region):
                         stats['correct_guesses'] += 1
 
         except Exception as e:
