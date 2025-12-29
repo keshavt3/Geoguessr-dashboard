@@ -32,7 +32,7 @@ def get_country_from_coords(lat, lng):
 BASE_FEED_URL = "https://www.geoguessr.com/api/v4/feed/private"
 BASE_DUEL_URL = "https://game-server.geoguessr.com/api/duels/"
 
-def fetch_filtered_tokens(session, game_type="team", mode_filter="all"):
+def fetch_filtered_tokens(session, game_type="team", mode_filter="all", max_pages=100):
     """Fetch game IDs from feed.
 
     Returns:
@@ -41,23 +41,42 @@ def fetch_filtered_tokens(session, game_type="team", mode_filter="all"):
     results = {}  # game_id -> is_competitive
     token = None
     page = 1
+    empty_pages = 0  # Track consecutive pages with no matching games
+    max_empty_pages = 10  # Stop after this many pages with no new games
 
-    while True:
-        print(f"Fetching feed page {page}...")
+    while page <= max_pages:
+        print(f"Fetching feed page {page}... ({len(results)} games found so far)")
         url = BASE_FEED_URL
         if token:
             url += f"?paginationToken={token}"
 
-        resp = session.get(url)
+        try:
+            resp = session.get(url, timeout=30)
+        except requests.exceptions.RequestException as e:
+            print(f"Network error on page {page}: {e}")
+            print("Waiting 5 seconds before retrying...")
+            time.sleep(5)
+            try:
+                resp = session.get(url, timeout=30)
+            except requests.exceptions.RequestException as e:
+                print(f"Retry failed: {e}")
+                print(f"Returning {len(results)} games fetched so far.")
+                break
 
         if resp.status_code == 401 or resp.status_code == 403:
             raise AuthenticationError("Invalid _ncfa token. Please check your cookie and try again.")
+        if resp.status_code == 429:
+            print("Rate limited. Waiting 30 seconds...")
+            time.sleep(30)
+            continue
         if resp.status_code != 200:
             raise AuthenticationError(f"API request failed with status {resp.status_code}")
 
         data = resp.json()
         if not data.get("entries"):
             break
+
+        games_found_this_page = 0
 
         for entry in data["entries"]:
             payload_raw = entry.get("payload")
@@ -86,7 +105,18 @@ def fetch_filtered_tokens(session, game_type="team", mode_filter="all"):
                     if mode_filter == "casual" and is_competitive:
                         continue
 
-                    results[game_id] = is_competitive
+                    if game_id not in results:
+                        results[game_id] = is_competitive
+                        games_found_this_page += 1
+
+        # Track empty pages to detect end of game history
+        if games_found_this_page == 0:
+            empty_pages += 1
+            if empty_pages >= max_empty_pages:
+                print(f"No new games found in {max_empty_pages} consecutive pages. Stopping.")
+                break
+        else:
+            empty_pages = 0
 
         token = data.get("paginationToken")
         if not token:
@@ -94,6 +124,7 @@ def fetch_filtered_tokens(session, game_type="team", mode_filter="all"):
         page += 1
         time.sleep(0.075)
 
+    print(f"Finished fetching. Found {len(results)} total games.")
     return results
 
 def fetch_single_team_duel(session, game_id, my_id, is_competitive=False, teammate_id=None):
@@ -413,8 +444,14 @@ if __name__ == "__main__":
     session.cookies.set("_ncfa", ncfa, domain="game-server.geoguessr.com")
 
 
-    # Then call the functions with session
-    game_tokens = ["3321914e-48ec-45c4-8689-c2dcc2bdeb9b","ba6de9ed-f51b-46bd-a2f6-c1b6ad935234", "ea7ff46d-7048-45b6-9817-cfc74d1a0252"]
+    # Fetch game tokens using the API
+    game_tokens = fetch_filtered_tokens(session, game_type, mode_filter)
+    if not game_tokens:
+        print("No games found.")
+        exit(1)
+
+    print(f"Found {len(game_tokens)} games to fetch.")
+
     if game_type == "team":
         games = fetch_team_duels(session, game_tokens, player_id, teammate_id)
     elif game_type == "duels":

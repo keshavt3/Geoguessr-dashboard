@@ -1,27 +1,64 @@
 # GeoGuessr Statistics Dashboard
 
-A statistics dashboard that fetches game data from the GeoGuessr API and processes it into detailed player and team statistics. Supports both Team Duels (2v2) and solo Duels (1v1) game modes.
+[![CI](https://github.com/keshavt3/geoguessr-dashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/keshavt3/geoguessr-dashboard/actions/workflows/ci.yml)
+
+A statistics dashboard for GeoGuessr players to analyze their Duels and Team Duels performance. Fetches your game history directly from the GeoGuessr API and presents detailed analytics by country, teammate, and game mode.
+
+![Dashboard Statistics](docs/GeoDashStatsPage.png)
 
 ## Features
 
-- Fetch game history from GeoGuessr API
-- Support for Team Duels (2v2) and solo Duels (1v1)
-- Filter by competitive or casual games
-- Per-country performance analytics with score differentials
-- Player contribution rates and teammate comparisons
-- Interactive world map visualization
-- Web dashboard with real-time fetch progress
+- **Comprehensive Statistics** - Win rates, average scores, 5K rates, guess times, and score differentials
+- **Country-Level Analytics** - Performance breakdown for every country with hit rates and common wrong guesses
+- **Interactive World Map** - Color-coded visualization of your performance by country
+- **Teammate Analysis** - Filter stats by teammate to see how you perform with different partners
+- **Game Mode Filtering** - Separate stats for competitive and casual games
+- **Both Game Modes** - Supports Team Duels (2v2) and solo Duels (1v1)
 
-## Requirements
+## Screenshots
+
+<details>
+<summary>View all screenshots</summary>
+
+### Home Page
+![Home Page](docs/GeoDashHomePage.png)
+
+### Fetch Games
+![Fetch Page](docs/GeoDashFetchPage.png)
+
+### Overall Statistics
+![Stats Page](docs/GeoDashStatsPage.png)
+
+### World Map Visualization
+![Color Coded Map](docs/GeoDashColorCodedMap.png)
+
+### Country Detail (United States)
+![Country Stats](docs/GeoDashUnitedStatesCountryStatsPage.png)
+
+### About Page
+![About Page](docs/GeoDashAboutPage.png)
+
+</details>
+
+## Built With
+
+- **Backend**: Python, Flask, SQLite
+- **Frontend**: HTML, CSS, JavaScript
+- **Data**: GeoGuessr API, reverse_geocoder for coordinate lookups
+- **Testing**: pytest
+
+## Getting Started
+
+### Prerequisites
 
 - Python 3.10+
 - GeoGuessr account with `_ncfa` authentication cookie
 
-## Installation
+### Installation
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/geoguessr-dashboard.git
+git clone https://github.com/keshavt3/geoguessr-dashboard.git
 cd geoguessr-dashboard
 
 # Create and activate virtual environment
@@ -29,95 +66,58 @@ python -m venv myenv
 source myenv/bin/activate
 
 # Install dependencies
-pip install -e .
-
-# For development (includes pytest, linting tools)
 pip install -e ".[dev]"
-```
 
-## Usage
-
-### Web Dashboard
-
-```bash
-# Initialize the database (first time only)
+# Initialize the database
 bin/geodashdb create
 
-# Start the development server
+# Start the server
 bin/geodashrun
-
-# Open http://localhost:8000 in your browser
 ```
 
-### CLI Data Fetching
+Then open http://localhost:8000 in your browser.
 
-```bash
-# Interactive CLI for fetching and processing game data
-python main.py
+### Getting Your Authentication Cookie
 
-# Or run individual scripts
-python geoguessr/fetch_games.py   # Fetch games only
-python geoguessr/process_stats.py # Process existing games.json
-```
-
-### Database Commands
-
-```bash
-bin/geodashdb create  # Initialize database
-bin/geodashdb reset   # Reset database and delete game data
-bin/geodashdb dump    # View database contents
-```
-
-## Authentication
-
-This dashboard requires your GeoGuessr `_ncfa` cookie for API access:
-
-1. Log into GeoGuessr in your browser
-2. Open Developer Tools (F12) > Application > Cookies
+1. Log into [GeoGuessr](https://www.geoguessr.com) in your browser
+2. Open Developer Tools (F12) → Application → Cookies
 3. Copy the value of the `_ncfa` cookie
-4. Enter it when prompted by the CLI or web dashboard
-
-## Statistics Computed
-
-**Overall Statistics:**
-- Win percentage and average rounds per game
-- Player contribution rates
-- Average scores and 5k counts
-- Guess times
-- Merchant stats (lost but outscored / won but outscored)
-
-**Per-Country Statistics:**
-- Average scores and distances
-- 5k rates (perfect score percentage)
-- Hit rates (correct country guesses)
-- Win rates and score differentials
-- Top/bottom 10 countries ranked by score differential (minimum 20 rounds)
+4. Paste it into the Fetch Games page
 
 ## Project Structure
 
 ```
 geoguessr-dashboard/
 ├── geoguessr/           # Data pipeline
-│   ├── fetch_games.py   # API fetching logic
+│   ├── fetch_games.py   # API fetching with pagination and error handling
 │   ├── process_stats.py # Statistics aggregation
 │   └── utils.py         # Shared utilities
-├── geodash/             # Flask web dashboard
+├── geodash/             # Flask web application
 │   ├── api/             # REST API endpoints
 │   ├── views/           # Page routes
 │   └── model.py         # Database layer
-├── bin/                 # CLI scripts
-├── sql/                 # Database schema
-├── tests/               # Test suite
-└── main.py              # CLI entry point
+├── tests/               # pytest test suite
+├── docs/                # Screenshots
+└── .github/workflows/   # CI pipeline
 ```
 
 ## Running Tests
 
 ```bash
-pytest                     # Run all tests
-pytest tests/test_file.py  # Run specific test file
-pytest -v                  # Verbose output
+pytest           # Run all tests
+pytest -v        # Verbose output
 ```
+
+## Statistics Explained
+
+| Stat | Description |
+|------|-------------|
+| **Win Rate** | Percentage of games won |
+| **5K Rate** | Percentage of rounds with a perfect 5000 score |
+| **Hit Rate** | Percentage of rounds where you guessed the correct country |
+| **Score Diff** | Average difference between your score and opponent's score |
+| **Multi-Merchant** | Games where you lost but outscored your opponent |
+| **Reverse Merchant** | Games where you won but were outscored |
 
 ## License
 

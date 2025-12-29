@@ -1,8 +1,9 @@
 """GeoGuessr Dashboard configuration."""
+import os
 import pathlib
 
 APPLICATION_ROOT = '/'
-SECRET_KEY = b'\x1a\x2b\x3c\x4d\x5e\x6f\x7a\x8b\x9c\xad\xbe\xcf\xda\xeb\xfc\x0d'
+SECRET_KEY = os.environ.get('GEODASH_SECRET_KEY', 'dev-only-insecure-key').encode()
 SESSION_COOKIE_NAME = 'geodash_session'
 
 GEODASH_ROOT = pathlib.Path(__file__).resolve().parent.parent
