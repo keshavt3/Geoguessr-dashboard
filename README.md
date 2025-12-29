@@ -1,6 +1,6 @@
 # GeoGuessr Statistics Dashboard
 
-[![CI](https://github.com/keshavt3/geoguessr-dashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/keshavt3/geoguessr-dashboard/actions/workflows/ci.yml)
+[![CI](https://github.com/keshavt3/Geoguessr-dashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/keshavt3/Geoguessr-dashboard/actions/workflows/ci.yml)
 
 A statistics dashboard for GeoGuessr players to analyze their Duels and Team Duels performance. Fetches your game history directly from the GeoGuessr API and presents detailed analytics by country, teammate, and game mode.
 
@@ -58,7 +58,7 @@ A statistics dashboard for GeoGuessr players to analyze their Duels and Team Due
 
 ```bash
 # Clone the repository
-git clone https://github.com/keshavt3/geoguessr-dashboard.git
+git clone https://github.com/keshavt3/Geoguessr-dashboard.git
 cd geoguessr-dashboard
 
 # Create and activate virtual environment
