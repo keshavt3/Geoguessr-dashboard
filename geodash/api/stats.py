@@ -947,8 +947,36 @@ def fetch_all_stream():
                     "team_duels_total": results["team_duels"]["total"]
                 })
 
+        except InvalidPlayerIdError as e:
+            yield _sse_event("error", {
+                "error": "This player ID doesn't match your account. Check that you copied it correctly.",
+                "field": "playerId"
+            })
+        except AuthenticationError as e:
+            error_msg = str(e)
+            # Provide user-friendly messages based on the error
+            if "401" in error_msg or "403" in error_msg or "Invalid _ncfa" in error_msg:
+                yield _sse_event("error", {
+                    "error": "Invalid or expired NCFA token. Try copying a fresh token from your browser.",
+                    "field": "ncfa"
+                })
+            else:
+                yield _sse_event("error", {
+                    "error": "Authentication failed. Please check your credentials and try again.",
+                    "field": "ncfa"
+                })
+        except requests.exceptions.ConnectionError:
+            yield _sse_event("error", {
+                "error": "Connection to the GeoGuessr API failed. Please check your internet connection and try again."
+            })
+        except requests.exceptions.Timeout:
+            yield _sse_event("error", {
+                "error": "Request timed out. The GeoGuessr API may be slow. Please try again."
+            })
         except Exception as e:
-            yield _sse_event("error", {"error": str(e)})
+            yield _sse_event("error", {
+                "error": "Something went wrong while fetching your games. Please try again. If this keeps happening, the GeoGuessr API may be temporarily unavailable."
+            })
 
     return flask.Response(
         generate(),

@@ -181,6 +181,30 @@ h3 {
     box-shadow: 0 0 0 3px rgba(0, 217, 255, 0.15);
 }
 
+/* Input error states */
+.form-group.has-error input,
+.form-group.has-error select {
+    border-color: var(--color-error);
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15);
+}
+
+.form-group.has-error input:focus,
+.form-group.has-error select:focus {
+    border-color: var(--color-error);
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.25);
+}
+
+.inline-error-message {
+    color: var(--color-error);
+    font-size: 0.85rem;
+    margin-top: var(--space-xs);
+    display: none;
+}
+
+.form-group.has-error .inline-error-message {
+    display: block;
+}
+
 button {
     background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%);
     color: var(--color-bg-dark);

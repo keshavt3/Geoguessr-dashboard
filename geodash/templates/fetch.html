@@ -8,14 +8,16 @@
 <p>Enter your credentials to fetch all your GeoGuessr games (both Solo Duels and Team Duels).</p>
 
 <form id="fetch-form">
-    <div class="form-group">
+    <div class="form-group" id="playerId-group">
         <label for="playerId">Player ID:</label>
         <input type="text" id="playerId" name="playerId" required>
+        <span class="inline-error-message" id="playerId-error"></span>
     </div>
 
-    <div class="form-group">
+    <div class="form-group" id="ncfa-group">
         <label for="ncfa">NCFA Cookie:</label>
         <input type="text" id="ncfa" name="ncfa" required>
+        <span class="inline-error-message" id="ncfa-error"></span>
     </div>
 
     <button type="submit" id="fetch-btn">Fetch All Games</button>
@@ -87,6 +89,30 @@ function hideError() {
     errorOverlay.classList.add('hidden');
 }
 
+// Inline error functions
+function showInlineError(field, message) {
+    const group = document.getElementById(`${field}-group`);
+    const errorSpan = document.getElementById(`${field}-error`);
+    if (group && errorSpan) {
+        group.classList.add('has-error');
+        errorSpan.textContent = message;
+    }
+}
+
+function clearInlineError(field) {
+    const group = document.getElementById(`${field}-group`);
+    const errorSpan = document.getElementById(`${field}-error`);
+    if (group && errorSpan) {
+        group.classList.remove('has-error');
+        errorSpan.textContent = '';
+    }
+}
+
+function clearAllInlineErrors() {
+    clearInlineError('playerId');
+    clearInlineError('ncfa');
+}
+
 function resetAllPhases() {
     document.querySelectorAll('.phase').forEach(phase => {
         phase.classList.remove('in-progress', 'complete', 'error');
@@ -110,6 +136,14 @@ errorOverlay.addEventListener('click', function(e) {
     }
 });
 
+// Clear inline errors when user starts typing
+document.getElementById('playerId').addEventListener('input', function() {
+    clearInlineError('playerId');
+});
+document.getElementById('ncfa').addEventListener('input', function() {
+    clearInlineError('ncfa');
+});
+
 document.getElementById('fetch-form').addEventListener('submit', function(e) {
     e.preventDefault();
 
@@ -123,6 +157,9 @@ document.getElementById('fetch-form').addEventListener('submit', function(e) {
     btn.disabled = true;
     statusDiv.innerHTML = '';
     progressContainer.classList.remove('hidden');
+
+    // Clear any previous errors
+    clearAllInlineErrors();
 
     // Reset all phases
     resetAllPhases();
@@ -186,9 +223,14 @@ document.getElementById('fetch-form').addEventListener('submit', function(e) {
 
         if (e.data) {
             const data = JSON.parse(e.data);
-            showError(data.error);
+            // Check if this is a field-specific error
+            if (data.field) {
+                showInlineError(data.field, data.error);
+            } else {
+                showError(data.error);
+            }
         } else {
-            showError('Connection error. Please try again.');
+            showError('Connection to the server was lost. This sometimes happens with the GeoGuessr API. Please try again.');
         }
     });
 
@@ -198,7 +240,7 @@ document.getElementById('fetch-form').addEventListener('submit', function(e) {
             markCurrentPhaseAsError();
             eventSource.close();
             btn.disabled = false;
-            showError('Connection lost. Please try again.');
+            showError('Connection to the server was lost. This sometimes happens with the GeoGuessr API. Please try again.');
         }
     };
 });
